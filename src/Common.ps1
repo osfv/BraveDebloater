@@ -52,6 +52,7 @@ function Get-FullFileSystemPath {
         return [System.IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path))
     }
     catch {
+        Write-Verbose "PSPath resolution failed for '$Path', falling back to direct resolution: $($_.Exception.Message)"
         return [System.IO.Path]::GetFullPath($Path)
     }
 }

@@ -200,7 +200,11 @@ function Update-BackupProfileFiles {
         [object[]]$ProfileFiles
     )
 
-    if (-not $BackupPath -or -not (Test-Path -LiteralPath $BackupPath)) {
+    if (-not $BackupPath) {
+        return
+    }
+    if (-not (Test-Path -LiteralPath $BackupPath)) {
+        Write-Warning "Backup file not found when updating profile metadata: $BackupPath"
         return
     }
 

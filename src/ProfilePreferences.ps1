@@ -65,13 +65,18 @@ function Get-BraveProfilePreferenceFiles {
         return $files.ToArray()
     }
 
-    Get-ChildItem -LiteralPath $Root -Directory -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            $preferencesPath = Join-Path $_.FullName 'Preferences'
-            if (Test-Path -LiteralPath $preferencesPath) {
-                [void]$files.Add($preferencesPath)
+    try {
+        Get-ChildItem -LiteralPath $Root -Directory -ErrorAction Stop |
+            ForEach-Object {
+                $preferencesPath = Join-Path $_.FullName 'Preferences'
+                if (Test-Path -LiteralPath $preferencesPath) {
+                    [void]$files.Add($preferencesPath)
+                }
             }
-        }
+    }
+    catch {
+        Write-Warning "Failed to enumerate profile directories under '$Root': $($_.Exception.Message)"
+    }
 
     return $files.ToArray()
 }

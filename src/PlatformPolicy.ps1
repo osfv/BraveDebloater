@@ -261,7 +261,12 @@ function Remove-PolicyValue {
 
     if ($Target.Kind -eq 'Registry') {
         if (Test-Path -LiteralPath $Target.Path) {
-            Remove-ItemProperty -LiteralPath $Target.Path -Name $Name -ErrorAction SilentlyContinue
+            try {
+                Remove-ItemProperty -LiteralPath $Target.Path -Name $Name -ErrorAction Stop
+            }
+            catch {
+                Write-Warning "Failed to remove registry value '$Name': $($_.Exception.Message)"
+            }
         }
         return
     }
@@ -398,6 +403,7 @@ function Test-PolicyValueMatches {
         }
     }
     catch {
+        Write-Warning "Policy value comparison failed for type '$Type': $($_.Exception.Message)"
         return $false
     }
 
