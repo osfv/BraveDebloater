@@ -353,6 +353,7 @@ function Get-FullFileSystemPath {
         return [System.IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path))
     }
     catch {
+        Write-Verbose "PSPath resolution failed for '$Path', falling back to direct resolution: $($_.Exception.Message)"
         return [System.IO.Path]::GetFullPath($Path)
     }
 }
@@ -586,6 +587,7 @@ function Get-RegistrySnapshot {
                 }
             }
             catch {
+                Write-Warning "Failed to read registry value '$policyName': $($_.Exception.Message)"
                 $entry.existed = $false
             }
         }
@@ -664,6 +666,7 @@ function Test-PolicyValueMatches {
         }
     }
     catch {
+        Write-Warning "Policy value comparison failed for type '$Type': $($_.Exception.Message)"
         return $false
     }
 
@@ -804,7 +807,11 @@ function Update-BackupProfileFiles {
         [object[]]$ProfileFiles
     )
 
-    if (-not $BackupPath -or -not (Test-Path -LiteralPath $BackupPath)) {
+    if (-not $BackupPath) {
+        return
+    }
+    if (-not (Test-Path -LiteralPath $BackupPath)) {
+        Write-Warning "Backup file not found when updating profile metadata: $BackupPath"
         return
     }
 
@@ -882,8 +889,13 @@ function Restore-RegistryBackup {
             Write-Step "Restored $name."
         }
         elseif (Test-Path -LiteralPath $registryPath) {
-            Remove-ItemProperty -LiteralPath $registryPath -Name $name -ErrorAction SilentlyContinue
-            Write-Step "Removed $name."
+            try {
+                Remove-ItemProperty -LiteralPath $registryPath -Name $name -ErrorAction Stop
+                Write-Step "Removed $name."
+            }
+            catch {
+                Write-Warning "Failed to remove registry value '$name': $($_.Exception.Message)"
+            }
         }
     }
 
@@ -972,13 +984,18 @@ function Get-BraveProfilePreferenceFiles {
         return $files.ToArray()
     }
 
-    Get-ChildItem -LiteralPath $Root -Directory -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            $preferencesPath = Join-Path $_.FullName 'Preferences'
-            if (Test-Path -LiteralPath $preferencesPath) {
-                [void]$files.Add($preferencesPath)
+    try {
+        Get-ChildItem -LiteralPath $Root -Directory -ErrorAction Stop |
+            ForEach-Object {
+                $preferencesPath = Join-Path $_.FullName 'Preferences'
+                if (Test-Path -LiteralPath $preferencesPath) {
+                    [void]$files.Add($preferencesPath)
+                }
             }
-        }
+    }
+    catch {
+        Write-Warning "Failed to enumerate profile directories under '$Root': $($_.Exception.Message)"
+    }
 
     return $files.ToArray()
 }
