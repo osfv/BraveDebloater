@@ -28,6 +28,10 @@ jobs:
         shell: pwsh
         run: ./scripts/Test-PolicyManifest.ps1
 
+      - name: Run unit tests
+        shell: pwsh
+        run: ./scripts/Test-Unit.ps1
+
       - name: Validate behavior
         shell: pwsh
         run: ./scripts/Test-Behavior.ps1
@@ -62,5 +66,6 @@ jobs:
         shell: powershell
         run: |
           ./scripts/Test-PolicyManifest.ps1
+          ./scripts/Test-Unit.ps1
           ./scripts/Test-Behavior.ps1
           ./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields
