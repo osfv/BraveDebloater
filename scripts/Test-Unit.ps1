@@ -686,7 +686,7 @@ Run-Test 'Set-JsonFileContent: writes JSON atomically' {
 Run-Test 'Set-JsonFileContent: creates parent directory' {
     $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ('UnitTest-Json2-{0}' -f [guid]::NewGuid().ToString('N'))
     try {
-        $path = Join-Path $tempDir 'sub' 'nested.json'
+        $path = Join-Path (Join-Path $tempDir 'sub') 'nested.json'
         Set-JsonFileContent -Path $path -Object @{ a = 1 }
         Assert-True -Value (Test-Path -LiteralPath $path) -Context 'nested file exists'
     }
@@ -733,7 +733,7 @@ Run-Test 'Test-PathIsUnderDirectory: child path returns true' {
     $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ('UnitTest-Path-{0}' -f [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     try {
-        $child = Join-Path $tempDir 'sub' 'file.txt'
+        $child = Join-Path (Join-Path $tempDir 'sub') 'file.txt'
         $result = Test-PathIsUnderDirectory -Path $child -Directory $tempDir
         Assert-True -Value $result -Context 'child path under dir'
     }
