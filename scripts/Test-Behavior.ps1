@@ -9,29 +9,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $scriptPath = Join-Path $root 'Invoke-BraveDebloat.ps1'
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('BraveDebloaterBehavior-{0}' -f [guid]::NewGuid().ToString('N'))
 
-function Assert-TextContains {
-    param(
-        [Parameter(Mandatory = $true)][string]$Text,
-        [Parameter(Mandatory = $true)][string]$Expected,
-        [Parameter(Mandatory = $true)][string]$Context
-    )
-
-    if (-not $Text.Contains($Expected)) {
-        throw "$Context did not contain expected text: $Expected"
-    }
-}
-
-function Assert-TextDoesNotContain {
-    param(
-        [Parameter(Mandatory = $true)][string]$Text,
-        [Parameter(Mandatory = $true)][string]$Unexpected,
-        [Parameter(Mandatory = $true)][string]$Context
-    )
-
-    if ($Text.Contains($Unexpected)) {
-        throw "$Context contained unexpected text: $Unexpected"
-    }
-}
+. (Join-Path $PSScriptRoot 'Shared.ps1')
 
 try {
     New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null

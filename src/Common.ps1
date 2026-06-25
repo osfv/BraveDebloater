@@ -13,11 +13,7 @@ function Write-DryRun {
 function Get-ManifestMap {
     param([Parameter(Mandatory = $true)]$Object)
 
-    $map = @{}
-    foreach ($property in $Object.PSObject.Properties) {
-        $map[$property.Name] = $property.Value
-    }
-    return $map
+    return ConvertTo-PropertyMap -Object $Object
 }
 
 function Add-StringIfMissing {

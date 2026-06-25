@@ -16,35 +16,7 @@ function Resolve-PresetPolicies {
         [hashtable]$Seen = @{}
     )
 
-    if (-not $Presets.ContainsKey($Name)) {
-        throw "Unknown preset '$Name'."
-    }
-    if ($Seen.ContainsKey($Name)) {
-        throw "Preset cycle detected at '$Name'."
-    }
-
-    $Seen[$Name] = $true
-    $resolved = New-Object System.Collections.Generic.List[string]
-
-    foreach ($entry in @($Presets[$Name])) {
-        if ($entry -isnot [string]) {
-            throw "Preset '$Name' contains a non-string entry."
-        }
-
-        if ($entry.StartsWith('@')) {
-            $childName = $entry.Substring(1)
-            foreach ($childPolicy in Resolve-PresetPolicies -Name $childName -Presets $Presets -Seen ($Seen.Clone())) {
-                if (-not $resolved.Contains($childPolicy)) {
-                    [void]$resolved.Add($childPolicy)
-                }
-            }
-        }
-        elseif (-not $resolved.Contains($entry)) {
-            [void]$resolved.Add($entry)
-        }
-    }
-
-    return $resolved.ToArray()
+    return Resolve-PresetEntries -Name $Name -Presets $Presets -Seen $Seen
 }
 
 function Get-FeatureMap {
@@ -229,20 +201,7 @@ function Assert-PolicySafety {
         [Parameter(Mandatory = $true)]$Manifest
     )
 
-    $blockedNames = @($Manifest.safety.blockedPolicyNames)
-    $blockedPatterns = @($Manifest.safety.blockedNamePatterns)
-
-    foreach ($policyName in $PolicyNames) {
-        if ($blockedNames -contains $policyName) {
-            throw "Refusing to apply protected policy '$policyName'."
-        }
-
-        foreach ($pattern in $blockedPatterns) {
-            if ($policyName -match $pattern) {
-                throw "Refusing to apply '$policyName' because it matches protected pattern '$pattern'."
-            }
-        }
-    }
+    Get-PolicySafetyFindings -PolicyNames $PolicyNames -Manifest $Manifest -Throw | Out-Null
 }
 
 function Assert-MobilePolicySupport {
@@ -270,23 +229,5 @@ function Get-PolicySafetyFinding {
         [Parameter(Mandatory = $true)]$Manifest
     )
 
-    $findings = New-Object System.Collections.Generic.List[string]
-    $blockedNames = @($Manifest.safety.blockedPolicyNames)
-    $blockedPatterns = @($Manifest.safety.blockedNamePatterns)
-
-    foreach ($policyName in $PolicyNames) {
-        if ($blockedNames -contains $policyName) {
-            [void]$findings.Add("Protected policy '$policyName' is present.")
-            continue
-        }
-
-        foreach ($pattern in $blockedPatterns) {
-            if ($policyName -match $pattern) {
-                [void]$findings.Add("Policy '$policyName' matches protected pattern '$pattern'.")
-                break
-            }
-        }
-    }
-
-    return $findings.ToArray()
+    return Get-PolicySafetyFindings -PolicyNames $PolicyNames -Manifest $Manifest
 }

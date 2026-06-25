@@ -58,6 +58,8 @@ if ([string]::IsNullOrWhiteSpace($BackupDirectory)) {
     $BackupDirectory = Join-Path $ProjectRoot 'backups'
 }
 
+. (Join-Path $ProjectRoot 'scripts\Shared.ps1')
+
 $moduleDir = Join-Path $ProjectRoot 'src'
 foreach ($moduleName in @('Common.ps1', 'Manifest.ps1', 'PlatformPolicy.ps1', 'Backup.ps1', 'ProfilePreferences.ps1', 'Reports.ps1')) {
     . (Join-Path $moduleDir $moduleName)

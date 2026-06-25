@@ -16,7 +16,7 @@ function Show-PolicyList {
         }
     }
 
-    $rows | Format-Table -AutoSize -Wrap
+    Format-TableOutput -Rows $rows
 }
 
 function Show-FeatureList {
@@ -34,7 +34,7 @@ function Show-FeatureList {
         }
     }
 
-    $rows | Format-Table -AutoSize -Wrap
+    Format-TableOutput -Rows $rows
 }
 
 function Show-ProfilePreferencePatchList {
@@ -50,7 +50,7 @@ function Show-ProfilePreferencePatchList {
         }
     }
 
-    $rows | Format-Table -AutoSize -Wrap
+    Format-TableOutput -Rows $rows
 }
 
 function Show-DoctorReport {
@@ -168,7 +168,7 @@ function Show-DoctorReport {
             Path = $report.Path
         }
     }
-    $scopeRows | Format-Table -AutoSize -Wrap
+    Format-TableOutput -Rows $scopeRows
 
     Write-Step 'Feature status:'
     $featureRows = foreach ($feature in @($Features)) {
@@ -179,7 +179,7 @@ function Show-DoctorReport {
             Label = [string]$feature.label
         }
     }
-    $featureRows | Format-Table -AutoSize -Wrap
+    Format-TableOutput -Rows $featureRows
 
     $unknownRows = New-Object System.Collections.Generic.List[object]
     foreach ($report in $reports) {
@@ -197,7 +197,7 @@ function Show-DoctorReport {
 
     if ($unknownRows.Count -gt 0) {
         Write-Step 'Unknown Brave policies: detected. These may have been set by Brave, another tool, or an organization.'
-        $unknownRows.ToArray() | Format-Table -AutoSize -Wrap
+        Format-TableOutput -Rows $unknownRows.ToArray()
     }
     else {
         Write-Step 'Unknown Brave policies: none detected.'
