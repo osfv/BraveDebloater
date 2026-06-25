@@ -7,11 +7,18 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 $scriptPath = Join-Path $root 'Invoke-BraveDebloat.ps1'
+$srcDir = Join-Path $root 'src'
 
-# Extract and load only function definitions from the main script using the AST.
-$ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
-foreach ($funcAst in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Parent -eq $ast.EndBlock }, $false)) {
-    . ([scriptblock]::Create($funcAst.Extent.Text))
+# Extract and load function definitions via AST from the main script and all src modules.
+$sourceFiles = @($scriptPath)
+if (Test-Path -LiteralPath $srcDir) {
+    $sourceFiles += @(Get-ChildItem -Path $srcDir -Filter '*.ps1' -File | ForEach-Object { $_.FullName })
+}
+foreach ($file in $sourceFiles) {
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$null)
+    foreach ($funcAst in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Parent -eq $ast.EndBlock }, $false)) {
+        . ([scriptblock]::Create($funcAst.Extent.Text))
+    }
 }
 
 # Override ProjectRoot so Get-Manifest can find the config directory.
