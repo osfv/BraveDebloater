@@ -78,6 +78,12 @@ function Test-PolicyTemplateVersionUpdater {
         if ([string]$updated.policyTemplateVersion -ne '1.2.3.4') {
             throw 'Update-PolicyTemplateVersion.ps1 did not assemble shuffled VERSION keys by name.'
         }
+        foreach ($updatedPath in @((Join-Path $tempRoot 'config/policies.json'), (Join-Path $tempRoot 'docs/debloatable-validation.md'))) {
+            $bytes = [System.IO.File]::ReadAllBytes($updatedPath)
+            if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xef -and $bytes[1] -eq 0xbb -and $bytes[2] -eq 0xbf) {
+                throw "Update-PolicyTemplateVersion.ps1 wrote a UTF-8 BOM to $updatedPath."
+            }
+        }
     }
     finally {
         if (Test-Path -LiteralPath $tempRoot) {

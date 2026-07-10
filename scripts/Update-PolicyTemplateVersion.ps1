@@ -49,6 +49,16 @@ function Get-TemplateVersion {
     return Get-PolicyTemplateVersionFromText -VersionText $versionText
 }
 
+function Set-Utf8NoBomText {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Content
+    )
+
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText((Resolve-Path -LiteralPath $Path), $Content, $encoding)
+}
+
 if (-not (Test-Path -LiteralPath $TemplateZipPath)) {
     throw "Missing template zip: $TemplateZipPath"
 }
@@ -68,11 +78,11 @@ if ([string]::IsNullOrWhiteSpace($oldVersion)) {
 }
 
 $manifestText = [regex]::Replace($manifestText, '"policyTemplateVersion":\s*"[^"]+"', ('"policyTemplateVersion": "{0}"' -f $templateVersion), 1)
-Set-Content -LiteralPath $manifestPath -Value $manifestText -Encoding UTF8
+Set-Utf8NoBomText -Path $manifestPath -Content $manifestText
 
 $docText = Get-Content -LiteralPath $validationDocPath -Raw
 $docText = [regex]::Replace($docText, 'Template version: `[^`]+`', ('Template version: `{0}`' -f $templateVersion), 1)
 $docText = [regex]::Replace($docText, 'changed from `([^`]+)` to `[^`]+`', ('changed from `$1` to `{0}`' -f $templateVersion), 1)
-Set-Content -LiteralPath $validationDocPath -Value $docText -Encoding UTF8
+Set-Utf8NoBomText -Path $validationDocPath -Content $docText
 
 Write-Host "Updated policy template version from $oldVersion to $templateVersion."
