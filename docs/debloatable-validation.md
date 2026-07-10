@@ -11,15 +11,15 @@ Official sources used for this pass:
 
 Downloaded template evidence:
 
-- Template version: `150.1.94.4`
-- Archive timestamp: June 23, 2026
+- Template version: `150.1.94.57`
+- Archive timestamp: July 10, 2026
 - Checked files: `VERSION` and `windows/admx/brave.admx`
 
 Targeted Reddit, Brave Community, and GitHub searches did not produce a newer or more authoritative debloatable-policy source than Brave's Help Center and template zip.
 
 ## What Changed
 
-The manifest version in `config/policies.json` changed from `148.1.91.121` to `150.1.94.4`.
+The manifest version in `config/policies.json` changed from `148.1.91.121` to `150.1.94.57`.
 
 These official-template policies were added because they match BraveDebloater's scope:
 
@@ -82,4 +82,3 @@ pwsh -NoProfile -File ./scripts/Test-Behavior.ps1
 ```
 
 The template validator uses a local zip file on purpose. CI can download the current zip before running it, but normal offline checks do not need network access.
-

@@ -240,11 +240,16 @@ try {
     }
 
     $linuxPolicyPath = Join-Path $tempRoot 'BraveDebloater-linux-policy.json'
-    $linuxApplyOutput = (& $scriptPath -Platform Linux -PolicyPath $linuxPolicyPath -OnlyFeature Rewards -Apply -NoBackup *>&1 | Out-String)
+    $linuxBackupDirectory = Join-Path $tempRoot 'LinuxBackups'
+    $linuxApplyOutput = (& $scriptPath -Platform Linux -PolicyPath $linuxPolicyPath -OnlyFeature Rewards -Apply -BackupDirectory $linuxBackupDirectory *>&1 | Out-String)
     Assert-TextContains -Text $linuxApplyOutput -Expected 'Platform: Linux' -Context 'Linux policy apply output'
+    Assert-TextContains -Text $linuxApplyOutput -Expected 'Backup written' -Context 'Linux policy apply output'
     Assert-TextContains -Text $linuxApplyOutput -Expected 'Set BraveRewardsDisabled.' -Context 'Linux policy apply output'
     if (-not (Test-Path -LiteralPath $linuxPolicyPath)) {
         throw 'Linux policy apply did not create the policy JSON file.'
+    }
+    if (@(Get-ChildItem -LiteralPath $linuxBackupDirectory -Filter 'BraveDebloater-*.json').Count -ne 1) {
+        throw 'Linux policy apply did not create exactly one backup.'
     }
     $linuxPolicyJson = Get-Content -LiteralPath $linuxPolicyPath -Raw | ConvertFrom-Json
     if ($linuxPolicyJson.BraveRewardsDisabled -isnot [bool] -or -not $linuxPolicyJson.BraveRewardsDisabled) {

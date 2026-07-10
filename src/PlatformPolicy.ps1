@@ -136,10 +136,10 @@ function Get-PolicyValue {
             $json = Get-Content -LiteralPath $Target.Path -Raw | ConvertFrom-Json
             $property = $json.PSObject.Properties[$Name]
             if ($null -ne $property) {
-                return [pscustomobject]@{ Exists = $true; Value = $property.Value; Kind = 'DWord' }
+                return [pscustomobject]@{ Exists = $true; Value = $property.Value; Kind = 'DWord'; ReadError = $false }
             }
         }
-        return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null }
+        return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
     }
 
     if ($Target.Kind -eq 'MacOSDefaults' -or $Target.Kind -eq 'MacOSPlist') {
@@ -154,11 +154,11 @@ function Get-PolicyValue {
             $number = 0
             $value = if ([int]::TryParse($text, [ref]$number)) { $number } else { $text }
             $kind = if ($value -is [int]) { 'DWord' } else { 'String' }
-            return [pscustomobject]@{ Exists = $true; Value = $value; Kind = $kind }
+            return [pscustomobject]@{ Exists = $true; Value = $value; Kind = $kind; ReadError = $false }
         }
     }
 
-    return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null }
+    return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
 }
 
 function Get-PolicySnapshot {
