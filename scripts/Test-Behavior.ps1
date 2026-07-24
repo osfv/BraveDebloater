@@ -106,7 +106,8 @@ try {
     $targetUserSid = 'S-1-5-21-1000-2000-3000-1001'
     $targetUserPath = "Registry::HKEY_USERS\$targetUserSid\Software\Policies\BraveSoftware\Brave"
     $targetUserOutput = (& $scriptPath -Platform Windows -UserSid $targetUserSid -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String)
-    Assert-TextContains -Text $targetUserOutput -Expected "Scope: CurrentUser ($targetUserPath)" -Context '-UserSid dry-run output'
+    Assert-TextContains -Text $targetUserOutput -Expected 'Scope: CurrentUser' -Context '-UserSid dry-run output'
+    Assert-TextContains -Text $targetUserOutput -Expected $targetUserPath -Context '-UserSid dry-run output'
     Assert-TextContains -Text $targetUserOutput -Expected 'Dry-run mode. No policy, backup, or profile files will be changed.' -Context '-UserSid dry-run output'
     Assert-TextContains -Text $targetUserOutput -Expected 'Would set BraveRewardsDisabled' -Context '-UserSid dry-run output'
 

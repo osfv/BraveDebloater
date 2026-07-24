@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "policyTemplateVersion": "150.1.94.57",
+  "policyTemplateVersion": "151.1.94.91",
   "sources": [
     "https://support.brave.app/hc/en-us/articles/360039248271-Group-Policy",
     "https://brave-browser-downloads.s3.brave.com/latest/policy_templates.zip"
