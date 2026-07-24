@@ -60,6 +60,17 @@ It checks that:
 - every manifest policy exists in `windows/admx/brave.admx`;
 - every iOS allow-listed policy is defined in the manifest.
 
+`scripts/Test-Behavior.ps1` also validates target-user registry safety. It checks that `-UserSid` builds only the exact Brave policy path under `HKEY_USERS`, rejects path-like SID input and non-Windows or machine-scope combinations, requires elevation for apply target construction, and requires the same explicit SID to preview a restore.
+
+On Windows, preview another loaded user's policy target before applying it from an elevated session:
+
+```powershell
+.\Invoke-BraveDebloat.ps1 -Platform Windows -UserSid S-1-5-21-1000-2000-3000-1001 -Preset Extreme
+.\Invoke-BraveDebloat.ps1 -Platform Windows -UserSid S-1-5-21-1000-2000-3000-1001 -Preset Extreme -Apply
+```
+
+The target is exactly `HKEY_USERS\<SID>\Software\Policies\BraveSoftware\Brave`. The user hive must already be loaded, and restore requires the same explicit `-UserSid`; `-PolicyPath` cannot authorize an `HKEY_USERS` restore. If profile preference cleanup is requested too, pass that user's `-ProfileRoot` explicitly.
+
 ## Validation Commands
 
 Download the current Brave template zip:

@@ -79,6 +79,18 @@ Read the output. If it looks right, apply it:
 
 After applying, restart Brave. Then open `brave://policy` and check that the policies loaded.
 
+## Command Output Screenshots
+
+These captures show sanitized, read-only output from the local PowerShell entrypoint:
+
+| Command | Capture |
+| --- | --- |
+| Default dry-run | [Preview output](assets/screenshots/default-dry-run.png) |
+| `-Doctor` | [Doctor report](assets/screenshots/doctor.png) |
+| `-ListFeatures` | [Feature list](assets/screenshots/list-features.png) |
+
+The examples use the Linux policy target with temporary paths so they contain no personal machine paths or policy changes. Each image is a native macOS Terminal capture of the visible output viewport; long reports continue below the captured viewport.
+
 ## Common Tasks
 
 See what would be changed, including profile preference patches:
@@ -138,6 +150,15 @@ Use PowerShell `-WhatIf` when you want a no-write preview even with `-Apply` pre
 ## Platform Support
 
 Windows writes Brave policy values under the current-user or local-machine registry policy key.
+
+To target another loaded Windows user's policy hive from an elevated PowerShell session, read that user's SID with `whoami /user` and pass it explicitly:
+
+```powershell
+.\Invoke-BraveDebloat.ps1 -Platform Windows -UserSid S-1-5-21-1000-2000-3000-1001 -Preset Extreme
+.\Invoke-BraveDebloat.ps1 -Platform Windows -UserSid S-1-5-21-1000-2000-3000-1001 -Preset Extreme -Apply
+```
+
+The target is exactly `HKEY_USERS\<SID>\Software\Policies\BraveSoftware\Brave`. The hive must already be loaded, and restores require the same explicit `-UserSid`; `-PolicyPath` cannot authorize an `HKEY_USERS` restore. Pass that user's `-ProfileRoot` explicitly when also using `-IncludeProfilePreferences`.
 
 macOS current-user mode uses `defaults write com.brave.Browser`. macOS machine-wide mode writes `/Library/Managed Preferences/com.brave.Browser.plist`.
 
@@ -246,8 +267,8 @@ For machine-wide policy, run PowerShell as administrator/root:
 
 Policy names and values come from Brave's official Group Policy documentation and Brave policy templates:
 
-- https://support.brave.app/hc/en-us/articles/360039248271-Group-Policy
-- https://brave-browser-downloads.s3.brave.com/latest/policy_templates.zip
+- <https://support.brave.app/hc/en-us/articles/360039248271-Group-Policy>
+- <https://brave-browser-downloads.s3.brave.com/latest/policy_templates.zip>
 
 See `docs/debloatable-validation.md` for the source version, the policy choices, and the validation commands.
 
