@@ -111,6 +111,24 @@ try {
     Assert-TextContains -Text $targetUserOutput -Expected 'Dry-run mode. No policy, backup, or profile files will be changed.' -Context '-UserSid dry-run output'
     Assert-TextContains -Text $targetUserOutput -Expected 'Would set BraveRewardsDisabled' -Context '-UserSid dry-run output'
 
+    $targetUserListModeCommands = @(
+        { & $scriptPath -Platform Windows -UserSid $targetUserSid -List | Out-Null },
+        { & $scriptPath -Platform Windows -UserSid $targetUserSid -ListFeatures | Out-Null },
+        { & $scriptPath -Platform Windows -UserSid $targetUserSid -ListBackups | Out-Null }
+    )
+    foreach ($targetUserListModeCommand in $targetUserListModeCommands) {
+        $targetUserListModeFailed = $false
+        try {
+            & $targetUserListModeCommand
+        }
+        catch {
+            $targetUserListModeFailed = $_.Exception.Message -match 'cannot be combined with -List'
+        }
+        if (-not $targetUserListModeFailed) {
+            throw '-UserSid did not reject a non-target-specific list mode.'
+        }
+    }
+
     $invalidUserSidFailed = $false
     try {
         & $scriptPath -Platform Windows -UserSid 'S-1-5-21-1000\Software' -OnlyFeature Rewards | Out-Null
@@ -155,16 +173,21 @@ try {
         throw '-UserSid did not reject a blank profile root for profile cleanup.'
     }
 
-    . (Join-Path $root 'src/PlatformPolicy.ps1')
-    function Test-IsAdministrator { return $false }
-    $unelevatedUserSidApplyFailed = $false
-    try {
-        Get-PolicyTarget -PlatformName Windows -ScopeName CurrentUser -OverridePath '' -UserSid $targetUserSid -Apply | Out-Null
+    function Test-UnelevatedUserSidTarget {
+        . (Join-Path $root 'src/PlatformPolicy.ps1')
+        function Test-IsAdministrator { return $false }
+
+        try {
+            Get-PolicyTarget -PlatformName Windows -ScopeName CurrentUser -OverridePath '' -UserSid $targetUserSid -Apply | Out-Null
+        }
+        catch {
+            return ($_.Exception.Message -match 'needs an elevated PowerShell session')
+        }
+
+        return $false
     }
-    catch {
-        $unelevatedUserSidApplyFailed = $_.Exception.Message -match 'needs an elevated PowerShell session'
-    }
-    if (-not $unelevatedUserSidApplyFailed) {
+
+    if (-not (Test-UnelevatedUserSidTarget)) {
         throw '-UserSid apply target construction did not require elevation.'
     }
 

@@ -93,6 +93,9 @@ if ($userSidSpecified) {
     if ($IncludeProfilePreferences -and [string]::IsNullOrWhiteSpace($ProfileRoot)) {
         throw '-IncludeProfilePreferences with -UserSid requires an explicit -ProfileRoot for that user.'
     }
+    if ($List -or $ListFeatures -or $ListBackups -or $PruneBackupsOlderThanDays -ge 0 -or $KeepLatestBackups -ge 0) {
+        throw '-UserSid cannot be combined with -List, -ListFeatures, or backup listing/retention options.'
+    }
 }
 if ([string]::IsNullOrWhiteSpace($ProfileRoot)) {
     $ProfileRoot = Get-DefaultProfileRoot -PlatformName $platformName -Channel $Channel
