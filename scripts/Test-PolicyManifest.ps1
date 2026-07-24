@@ -111,6 +111,13 @@ $featureIds = New-Object System.Collections.Generic.List[string]
 $blockedNames = @($manifest.safety.blockedPolicyNames)
 $blockedPatterns = @($manifest.safety.blockedNamePatterns)
 $platformSupport = Get-ObjectMap -Object $manifest.platformSupport
+$deprecatedPolicyNames = @('PrivacySandboxPromptEnabled', 'PromotionalTabsEnabled')
+
+foreach ($deprecatedPolicyName in $deprecatedPolicyNames) {
+    if ($policies.ContainsKey($deprecatedPolicyName)) {
+        throw "Manifest must not include deprecated policy '$deprecatedPolicyName'."
+    }
+}
 
 foreach ($platformName in @('Windows', 'macOS', 'Linux', 'Android', 'iOS')) {
     if (-not $platformSupport.ContainsKey($platformName)) {

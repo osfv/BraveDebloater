@@ -25,7 +25,8 @@ These official-template policies were added because they match BraveDebloater's 
 
 - `EmailAliasesEnabled = 0`
 - `IPFSEnabled = 0`
-- `PromotionalTabsEnabled = 0`
+
+The current template marks `PrivacySandboxPromptEnabled` and `PromotionalTabsEnabled` as deprecated. They are excluded from the manifest; `PromotionsEnabled = 0` is retained as the supported policy for promotional content and avoids the deprecated policy override.
 
 These official-template policies were checked and left out:
 

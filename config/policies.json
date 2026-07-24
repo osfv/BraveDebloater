@@ -71,7 +71,6 @@
       "BraveReduceLanguageEnabled",
       "MetricsReportingEnabled",
       "UrlKeyedAnonymizedDataCollectionEnabled",
-      "PrivacySandboxPromptEnabled",
       "SearchSuggestEnabled",
       "NetworkPredictionOptions",
       "SpellCheckServiceEnabled"
@@ -80,7 +79,6 @@
       "@Privacy",
       "BackgroundModeEnabled",
       "PromotionsEnabled",
-      "PromotionalTabsEnabled",
       "BrowserLabsEnabled",
       "MediaRecommendationsEnabled",
       "NTPCardsVisible",
@@ -249,14 +247,6 @@
       "reason": "Disable Chromium metrics and URL-keyed collection."
     },
     {
-      "id": "PrivacySandboxPrompt",
-      "label": "Privacy Sandbox prompts",
-      "policies": [
-        "PrivacySandboxPromptEnabled"
-      ],
-      "reason": "Disable Privacy Sandbox prompts."
-    },
-    {
       "id": "SearchSuggestions",
       "label": "remote search suggestions",
       "policies": [
@@ -292,8 +282,7 @@
       "id": "Promotions",
       "label": "promotional surfaces",
       "policies": [
-        "PromotionsEnabled",
-        "PromotionalTabsEnabled"
+        "PromotionsEnabled"
       ],
       "reason": "Disable promotional surfaces."
     },
@@ -513,12 +502,6 @@
       "category": "Telemetry",
       "reason": "Disable URL-keyed anonymized data collection."
     },
-    "PrivacySandboxPromptEnabled": {
-      "type": "DWord",
-      "value": 0,
-      "category": "Privacy",
-      "reason": "Disable Privacy Sandbox prompts."
-    },
     "SearchSuggestEnabled": {
       "type": "DWord",
       "value": 0,
@@ -548,12 +531,6 @@
       "value": 0,
       "category": "UI",
       "reason": "Disable promotional surfaces."
-    },
-    "PromotionalTabsEnabled": {
-      "type": "DWord",
-      "value": 0,
-      "category": "UI",
-      "reason": "Disable promotional tabs."
     },
     "BrowserLabsEnabled": {
       "type": "DWord",
