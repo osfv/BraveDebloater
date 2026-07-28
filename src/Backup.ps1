@@ -4,6 +4,7 @@ function Assert-BackupRegistryPath {
     param(
         [Parameter(Mandatory = $true)][string]$RegistryPath,
         [string]$AllowedPolicyPath,
+        [string]$AllowedUserPolicyPath,
         [switch]$DoApply
     )
 
@@ -15,12 +16,36 @@ function Assert-BackupRegistryPath {
         'com.brave.Browser'
     )
 
-    if ($allowedPaths -notcontains $RegistryPath -and $RegistryPath -ne $AllowedPolicyPath) {
+    $isTargetUserPolicyPath = $false
+    $targetUserSid = ''
+    if ($RegistryPath -like 'Registry::HKEY_USERS\*') {
+        $targetUserPathMatch = [regex]::Match($RegistryPath, '^Registry::HKEY_USERS\\(S-[^\\]+)\\Software\\Policies\\BraveSoftware\\Brave$', [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
+        if (-not $targetUserPathMatch.Success) {
+            throw "Backup contains untrusted registry path '$RegistryPath'. Restore stopped before writing anything."
+        }
+        $targetUserSid = $targetUserPathMatch.Groups[1].Value
+        Assert-UserSid -UserSid $targetUserSid
+        $isTargetUserPolicyPath = $true
+        if ($RegistryPath -ne $AllowedUserPolicyPath) {
+            throw "Backup contains untrusted registry path '$RegistryPath'. Restore stopped before writing anything."
+        }
+    }
+
+    if (-not $isTargetUserPolicyPath -and $allowedPaths -notcontains $RegistryPath -and $RegistryPath -ne $AllowedPolicyPath) {
         throw "Backup contains untrusted registry path '$RegistryPath'. Restore stopped before writing anything."
     }
 
     if ($DoApply -and $RegistryPath -ieq 'Registry::HKEY_LOCAL_MACHINE\Software\Policies\BraveSoftware\Brave' -and -not (Test-IsAdministrator)) {
         throw 'Restoring a LocalMachine backup needs an elevated PowerShell session. Reopen PowerShell as administrator/root, then rerun the restore command.'
+    }
+
+    if ($DoApply -and $isTargetUserPolicyPath) {
+        if (-not (Test-IsAdministrator)) {
+            throw 'Restoring a target-user backup needs an elevated PowerShell session. Reopen PowerShell as administrator, then rerun the restore command.'
+        }
+        if (-not (Test-Path -LiteralPath "Registry::HKEY_USERS\$targetUserSid")) {
+            throw "The registry hive for user SID '$targetUserSid' is not loaded. Sign in that user, then rerun the elevated restore command."
+        }
     }
 
     if ($DoApply -and $RegistryPath -eq '/Library/Managed Preferences/com.brave.Browser.plist' -and -not (Test-IsAdministrator)) {
@@ -102,6 +127,7 @@ function Assert-BackupObject {
         [Parameter(Mandatory = $true)][string]$BackupPath,
         [Parameter(Mandatory = $true)][string]$ProfileRoot,
         [string]$AllowedPolicyPath,
+        [string]$AllowedUserPolicyPath,
         [switch]$DoApply
     )
 
@@ -111,7 +137,7 @@ function Assert-BackupObject {
     }
 
     $registryPath = [string](Get-RequiredPropertyValue -Object $Backup -Name 'registryPath' -Context 'Backup')
-    Assert-BackupRegistryPath -RegistryPath $registryPath -AllowedPolicyPath $AllowedPolicyPath -DoApply:$DoApply
+    Assert-BackupRegistryPath -RegistryPath $registryPath -AllowedPolicyPath $AllowedPolicyPath -AllowedUserPolicyPath $AllowedUserPolicyPath -DoApply:$DoApply
 
     $policyDefinitions = Get-ManifestMap -Object $Manifest.policies
     Assert-BackupPolicyList -Backup $Backup -PolicyDefinitions $policyDefinitions
@@ -274,6 +300,7 @@ function Restore-RegistryBackup {
         [Parameter(Mandatory = $true)]$Manifest,
         [Parameter(Mandatory = $true)][string]$ProfileRoot,
         [string]$AllowedPolicyPath,
+        [string]$AllowedUserPolicyPath,
         [switch]$DoApply
     )
 
@@ -282,7 +309,7 @@ function Restore-RegistryBackup {
     }
 
     $backup = Get-Content -LiteralPath $BackupPath -Raw | ConvertFrom-Json
-    Assert-BackupObject -Backup $backup -Manifest $Manifest -BackupPath $BackupPath -ProfileRoot $ProfileRoot -AllowedPolicyPath $AllowedPolicyPath -DoApply:$DoApply
+    Assert-BackupObject -Backup $backup -Manifest $Manifest -BackupPath $BackupPath -ProfileRoot $ProfileRoot -AllowedPolicyPath $AllowedPolicyPath -AllowedUserPolicyPath $AllowedUserPolicyPath -DoApply:$DoApply
     $policyTarget = [pscustomobject]@{
         Platform = if ($backup.PSObject.Properties['platform']) { [string]$backup.platform } else { 'Windows' }
         Kind = if ($backup.PSObject.Properties['policyKind']) { [string]$backup.policyKind } else { 'Registry' }

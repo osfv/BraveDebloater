@@ -103,6 +103,94 @@ try {
     Assert-TextContains -Text $onlyDryRunOutput -Expected 'Custom features: Rewards' -Context '-OnlyFeature dry-run output'
     Assert-TextDoesNotContain -Text $onlyDryRunOutput -Unexpected 'Preset: Extreme' -Context '-OnlyFeature dry-run output'
 
+    $targetUserSid = 'S-1-5-21-1000-2000-3000-1001'
+    $targetUserPath = "Registry::HKEY_USERS\$targetUserSid\Software\Policies\BraveSoftware\Brave"
+    $targetUserOutput = (& $scriptPath -Platform Windows -UserSid $targetUserSid -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String)
+    Assert-TextContains -Text $targetUserOutput -Expected 'Scope: CurrentUser' -Context '-UserSid dry-run output'
+    Assert-TextContains -Text $targetUserOutput -Expected $targetUserPath -Context '-UserSid dry-run output'
+    Assert-TextContains -Text $targetUserOutput -Expected 'Dry-run mode. No policy, backup, or profile files will be changed.' -Context '-UserSid dry-run output'
+    Assert-TextContains -Text $targetUserOutput -Expected 'Would set BraveRewardsDisabled' -Context '-UserSid dry-run output'
+
+    $targetUserListModeCommands = @(
+        { & $scriptPath -Platform Windows -UserSid $targetUserSid -List | Out-Null },
+        { & $scriptPath -Platform Windows -UserSid $targetUserSid -ListFeatures | Out-Null },
+        { & $scriptPath -Platform Windows -UserSid $targetUserSid -ListBackups | Out-Null }
+    )
+    foreach ($targetUserListModeCommand in $targetUserListModeCommands) {
+        $targetUserListModeFailed = $false
+        try {
+            & $targetUserListModeCommand
+        }
+        catch {
+            $targetUserListModeFailed = $_.Exception.Message -match 'cannot be combined with -List'
+        }
+        if (-not $targetUserListModeFailed) {
+            throw '-UserSid did not reject a non-target-specific list mode.'
+        }
+    }
+
+    $invalidUserSidFailed = $false
+    try {
+        & $scriptPath -Platform Windows -UserSid 'S-1-5-21-1000\Software' -OnlyFeature Rewards | Out-Null
+    }
+    catch {
+        $invalidUserSidFailed = $_.Exception.Message -match 'Invalid user SID'
+    }
+    if (-not $invalidUserSidFailed) {
+        throw '-UserSid did not reject a path-like value.'
+    }
+
+    $nonWindowsUserSidFailed = $false
+    try {
+        & $scriptPath -Platform Linux -UserSid $targetUserSid -OnlyFeature Rewards | Out-Null
+    }
+    catch {
+        $nonWindowsUserSidFailed = $_.Exception.Message -match 'supported only for Windows registry policies'
+    }
+    if (-not $nonWindowsUserSidFailed) {
+        throw '-UserSid did not reject a non-Windows target.'
+    }
+
+    $machineScopeUserSidFailed = $false
+    try {
+        & $scriptPath -Platform Windows -Scope LocalMachine -UserSid $targetUserSid -OnlyFeature Rewards | Out-Null
+    }
+    catch {
+        $machineScopeUserSidFailed = $_.Exception.Message -match 'cannot be combined with -Scope LocalMachine'
+    }
+    if (-not $machineScopeUserSidFailed) {
+        throw '-UserSid did not reject LocalMachine scope.'
+    }
+
+    $blankTargetProfileRootFailed = $false
+    try {
+        & $scriptPath -Platform Windows -UserSid $targetUserSid -IncludeProfilePreferences -ProfileRoot '' -OnlyFeature Rewards | Out-Null
+    }
+    catch {
+        $blankTargetProfileRootFailed = $_.Exception.Message -match 'requires an explicit -ProfileRoot'
+    }
+    if (-not $blankTargetProfileRootFailed) {
+        throw '-UserSid did not reject a blank profile root for profile cleanup.'
+    }
+
+    function Test-UnelevatedUserSidTarget {
+        . (Join-Path $root 'src/PlatformPolicy.ps1')
+        function Test-IsAdministrator { return $false }
+
+        try {
+            Get-PolicyTarget -PlatformName Windows -ScopeName CurrentUser -OverridePath '' -UserSid $targetUserSid -Apply | Out-Null
+        }
+        catch {
+            return ($_.Exception.Message -match 'needs an elevated PowerShell session')
+        }
+
+        return $false
+    }
+
+    if (-not (Test-UnelevatedUserSidTarget)) {
+        throw '-UserSid apply target construction did not require elevation.'
+    }
+
     $blankOnlyFeatureFailed = $false
     try {
         & $scriptPath -OnlyFeature ' ' | Out-Null
@@ -211,6 +299,65 @@ try {
 
     $restoreOutput = (& $scriptPath -UndoFromBackup $validBackup *>&1 | Out-String)
     Assert-TextContains -Text $restoreOutput -Expected 'Would remove BraveRewardsDisabled' -Context 'restore dry-run output'
+
+    $targetUserBackup = Join-Path $tempRoot 'target-user-backup.json'
+    [ordered]@{
+        schemaVersion = 1
+        registryPath = $targetUserPath
+        policies = @(
+            [ordered]@{
+                name = 'BraveRewardsDisabled'
+                existed = $false
+                value = $null
+                kind = $null
+            }
+        )
+        profileFiles = @()
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $targetUserBackup -Encoding UTF8
+
+    $targetUserRestoreRejected = $false
+    try {
+        & $scriptPath -Platform Windows -ProfileRoot $missingProfileRoot -UndoFromBackup $targetUserBackup | Out-Null
+    }
+    catch {
+        $targetUserRestoreRejected = $_.Exception.Message -match 'untrusted registry path'
+    }
+    if (-not $targetUserRestoreRejected) {
+        throw 'Target-user backup restore did not require the matching -UserSid.'
+    }
+
+    $targetUserRestoreOutput = (& $scriptPath -Platform Windows -UserSid $targetUserSid -ProfileRoot $missingProfileRoot -UndoFromBackup $targetUserBackup *>&1 | Out-String)
+    Assert-TextContains -Text $targetUserRestoreOutput -Expected 'Would remove BraveRewardsDisabled' -Context 'target-user restore dry-run output'
+
+    $unsafeTargetUserBackup = Join-Path $tempRoot 'unsafe-target-user-backup.json'
+    [ordered]@{
+        schemaVersion = 1
+        registryPath = "Registry::HKEY_USERS\$targetUserSid\Software\Microsoft"
+        policies = @()
+        profileFiles = @()
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $unsafeTargetUserBackup -Encoding UTF8
+
+    $unsafeTargetUserRestoreRejected = $false
+    try {
+        & $scriptPath -Platform Windows -ProfileRoot $missingProfileRoot -PolicyPath "Registry::HKEY_USERS\$targetUserSid\Software\Microsoft" -UndoFromBackup $unsafeTargetUserBackup | Out-Null
+    }
+    catch {
+        $unsafeTargetUserRestoreRejected = $_.Exception.Message -match 'untrusted registry path'
+    }
+    if (-not $unsafeTargetUserRestoreRejected) {
+        throw 'Target-user restore accepted a path outside the exact Brave policy suffix.'
+    }
+
+    $policyPathTargetUserRestoreRejected = $false
+    try {
+        & $scriptPath -Platform Windows -ProfileRoot $missingProfileRoot -PolicyPath $targetUserPath -UndoFromBackup $targetUserBackup | Out-Null
+    }
+    catch {
+        $policyPathTargetUserRestoreRejected = $_.Exception.Message -match 'untrusted registry path'
+    }
+    if (-not $policyPathTargetUserRestoreRejected) {
+        throw '-PolicyPath authorized a target-user restore without the matching -UserSid.'
+    }
 
     $mixedProfileRoot = Join-Path $tempRoot 'MixedProfileRoot'
     $invalidProfileDirectory = Join-Path $mixedProfileRoot 'Default'

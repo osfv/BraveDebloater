@@ -48,8 +48,37 @@ function Get-DefaultProfileRoot {
     }
 }
 
+function Assert-UserSid {
+    param([Parameter(Mandatory = $true)][string]$UserSid)
+
+    if ($UserSid -cnotmatch '^S-1-(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*)){1,15}$') {
+        throw "Invalid user SID '$UserSid'. Supply a Windows SID such as S-1-5-21-1000-1000-1000-1001."
+    }
+
+    $parts = $UserSid.Split('-')
+    $identifierAuthority = [uint64]0
+    if (-not [uint64]::TryParse($parts[2], [ref]$identifierAuthority) -or $identifierAuthority -gt 281474976710655) {
+        throw "Invalid user SID '$UserSid'. The SID identifier authority is out of range."
+    }
+
+    for ($index = 3; $index -lt $parts.Count; $index++) {
+        $subAuthority = [uint32]0
+        if (-not [uint32]::TryParse($parts[$index], [ref]$subAuthority)) {
+            throw "Invalid user SID '$UserSid'. SID sub-authorities must be 32-bit unsigned integers."
+        }
+    }
+}
+
 function Get-RegistryPolicyPath {
-    param([string]$ScopeName)
+    param(
+        [string]$ScopeName,
+        [string]$UserSid
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($UserSid)) {
+        Assert-UserSid -UserSid $UserSid
+        return "Registry::HKEY_USERS\$UserSid\Software\Policies\BraveSoftware\Brave"
+    }
 
     if ($ScopeName -eq 'LocalMachine') {
         return 'Registry::HKEY_LOCAL_MACHINE\Software\Policies\BraveSoftware\Brave'
@@ -61,8 +90,25 @@ function Get-RegistryPolicyPath {
 function Get-RegistryBasePath {
     param(
         [string]$ScopeName,
+        [string]$UserSid,
+        [switch]$Apply,
         [switch]$ReadOnly
     )
+
+    if (-not [string]::IsNullOrWhiteSpace($UserSid)) {
+        if ($ScopeName -ne 'CurrentUser') {
+            throw '-UserSid cannot be combined with -Scope LocalMachine. A target user SID selects that user policy hive directly.'
+        }
+        if ($Apply -and -not $ReadOnly -and -not (Test-IsAdministrator)) {
+            throw 'Applying policies for -UserSid needs an elevated PowerShell session. Reopen PowerShell as administrator, then rerun the command.'
+        }
+        if ($Apply -and -not $ReadOnly) {
+            $userHivePath = "Registry::HKEY_USERS\$UserSid"
+            if (-not (Test-Path -LiteralPath $userHivePath)) {
+                throw "The registry hive for user SID '$UserSid' is not loaded. Sign in that user, then rerun the elevated command."
+            }
+        }
+    }
 
     if ($ScopeName -eq 'LocalMachine' -and -not $ReadOnly) {
         if (-not (Test-IsAdministrator)) {
@@ -70,7 +116,7 @@ function Get-RegistryBasePath {
         }
     }
 
-    return (Get-RegistryPolicyPath -ScopeName $ScopeName)
+    return (Get-RegistryPolicyPath -ScopeName $ScopeName -UserSid $UserSid)
 }
 
 function Get-PolicyTarget {
@@ -78,12 +124,14 @@ function Get-PolicyTarget {
         [string]$PlatformName,
         [string]$ScopeName,
         [string]$OverridePath,
+        [string]$UserSid,
+        [switch]$Apply,
         [switch]$ReadOnly
     )
 
     switch ($PlatformName) {
         'Windows' {
-            return [pscustomobject]@{ Platform = $PlatformName; Kind = 'Registry'; Path = (Get-RegistryBasePath -ScopeName $ScopeName -ReadOnly:$ReadOnly) }
+            return [pscustomobject]@{ Platform = $PlatformName; Kind = 'Registry'; Path = (Get-RegistryBasePath -ScopeName $ScopeName -UserSid $UserSid -Apply:$Apply -ReadOnly:$ReadOnly) }
         }
         'Linux' {
             $path = if ([string]::IsNullOrWhiteSpace($OverridePath)) { '/etc/brave/policies/managed/BraveDebloater.json' } else { $OverridePath }

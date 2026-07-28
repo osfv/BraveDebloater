@@ -11,21 +11,22 @@ Official sources used for this pass:
 
 Downloaded template evidence:
 
-- Template version: `150.1.94.57`
-- Archive timestamp: July 10, 2026
+- Template version: `151.1.94.91`
+- Archive timestamp: July 22, 2026
 - Checked files: `VERSION` and `windows/admx/brave.admx`
 
 Targeted Reddit, Brave Community, and GitHub searches did not produce a newer or more authoritative debloatable-policy source than Brave's Help Center and template zip.
 
 ## What Changed
 
-The manifest version in `config/policies.json` changed from `148.1.91.121` to `150.1.94.57`.
+The manifest version in `config/policies.json` changed from `148.1.91.121` to `151.1.94.91`.
 
 These official-template policies were added because they match BraveDebloater's scope:
 
 - `EmailAliasesEnabled = 0`
 - `IPFSEnabled = 0`
-- `PromotionalTabsEnabled = 0`
+
+The manifest's `deprecatedPolicies` list records names that must stay out of active presets. The current template marks `PrivacySandboxPromptEnabled` and `PromotionalTabsEnabled` as deprecated. They are excluded from the manifest; `PromotionsEnabled = 0` is retained as the supported policy for promotional content and avoids the deprecated policy override.
 
 These official-template policies were checked and left out:
 
@@ -59,6 +60,17 @@ It checks that:
 - the manifest version matches the zip `VERSION`;
 - every manifest policy exists in `windows/admx/brave.admx`;
 - every iOS allow-listed policy is defined in the manifest.
+
+`scripts/Test-Behavior.ps1` also validates target-user registry safety. It checks that `-UserSid` builds only the exact Brave policy path under `HKEY_USERS`, rejects path-like SID input and non-Windows or machine-scope combinations, requires elevation for apply target construction, and requires the same explicit SID to preview a restore.
+
+On Windows, preview another loaded user's policy target before applying it from an elevated session:
+
+```powershell
+.\Invoke-BraveDebloat.ps1 -Platform Windows -UserSid S-1-5-21-1000-2000-3000-1001 -Preset Extreme
+.\Invoke-BraveDebloat.ps1 -Platform Windows -UserSid S-1-5-21-1000-2000-3000-1001 -Preset Extreme -Apply
+```
+
+The target is exactly `HKEY_USERS\<SID>\Software\Policies\BraveSoftware\Brave`. The user hive must already be loaded, and restore requires the same explicit `-UserSid`; `-PolicyPath` cannot authorize an `HKEY_USERS` restore. If profile preference cleanup is requested too, pass that user's `-ProfileRoot` explicitly.
 
 ## Validation Commands
 

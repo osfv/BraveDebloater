@@ -14,6 +14,8 @@ param(
     [ValidateSet('CurrentUser', 'LocalMachine')]
     [string]$Scope = 'CurrentUser',
 
+    [string]$UserSid,
+
     [switch]$Apply,
 
     [switch]$Doctor,
@@ -76,6 +78,25 @@ foreach ($moduleName in @('Common.ps1', 'Manifest.ps1', 'PlatformPolicy.ps1', 'B
 
 $manifest = Get-Manifest
 $platformName = Resolve-PlatformName -Name $Platform
+$userSidSpecified = -not [string]::IsNullOrWhiteSpace($UserSid)
+if ($userSidSpecified) {
+    Assert-UserSid -UserSid $UserSid
+    if ($platformName -ne 'Windows') {
+        throw '-UserSid is supported only for Windows registry policies. Remove -UserSid or use -Platform Windows.'
+    }
+    if ($Scope -ne 'CurrentUser') {
+        throw '-UserSid cannot be combined with -Scope LocalMachine. A target user SID selects that user policy hive directly.'
+    }
+    if ($Doctor) {
+        throw '-UserSid cannot be combined with -Doctor. Use a normal dry-run to preview the target user policy path.'
+    }
+    if ($IncludeProfilePreferences -and [string]::IsNullOrWhiteSpace($ProfileRoot)) {
+        throw '-IncludeProfilePreferences with -UserSid requires an explicit -ProfileRoot for that user.'
+    }
+    if ($List -or $ListFeatures -or $ListBackups -or $PruneBackupsOlderThanDays -ge 0 -or $KeepLatestBackups -ge 0) {
+        throw '-UserSid cannot be combined with -List, -ListFeatures, or backup listing/retention options.'
+    }
+}
 if ([string]::IsNullOrWhiteSpace($ProfileRoot)) {
     $ProfileRoot = Get-DefaultProfileRoot -PlatformName $platformName -Channel $Channel
 }
@@ -88,7 +109,8 @@ if ($ListBackups -or $PruneBackupsOlderThanDays -ge 0 -or $KeepLatestBackups -ge
 }
 
 if ($UndoFromBackup) {
-    Restore-RegistryBackup -BackupPath $UndoFromBackup -Manifest $manifest -ProfileRoot $ProfileRoot -AllowedPolicyPath $PolicyPath -DoApply:$applyChanges
+    $allowedUserPolicyPath = if ($userSidSpecified) { Get-RegistryPolicyPath -ScopeName 'CurrentUser' -UserSid $UserSid } else { $null }
+    Restore-RegistryBackup -BackupPath $UndoFromBackup -Manifest $manifest -ProfileRoot $ProfileRoot -AllowedPolicyPath $PolicyPath -AllowedUserPolicyPath $allowedUserPolicyPath -DoApply:$applyChanges
     if (-not $applyChanges) {
         if ($isWhatIf) {
             Write-Step 'Undo preview complete. No files or policies were restored. Rerun with -Apply without -WhatIf to restore the backup.'
@@ -190,7 +212,7 @@ if ($List) {
     return
 }
 
-$policyTarget = Get-PolicyTarget -PlatformName $platformName -ScopeName $Scope -OverridePath $PolicyPath
+$policyTarget = Get-PolicyTarget -PlatformName $platformName -ScopeName $Scope -OverridePath $PolicyPath -UserSid $UserSid -Apply:$applyChanges
 if ($policyTarget.Kind -eq 'MobileMDM' -and $applyChanges) {
     throw "$platformName policies require MDM deployment. This script can list or export the selected policies, but it cannot apply them on-device."
 }
