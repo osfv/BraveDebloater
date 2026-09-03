@@ -328,7 +328,7 @@ function Get-PresentPolicyNames {
 
     if ($hadReadError) {
         $detail = if ([string]::IsNullOrWhiteSpace($readErrorMessage)) { '' } else { ": $readErrorMessage" }
-        Write-Warning "Could not read existing policies at '$($Target.Path)', so leftover obsolete policies were not checked$detail."
+        throw "Could not read existing policies at '$($Target.Path)'$detail."
     }
 
     return $present.ToArray()

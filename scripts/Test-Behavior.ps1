@@ -496,6 +496,24 @@ try {
     if ($malformedAfterWhatIf -ne $malformedPolicyContent) {
         throw 'WhatIf modified a malformed Linux policy JSON file.'
     }
+    $malformedApplyBackupDirectory = Join-Path $tempRoot 'MalformedApplyBackups'
+    $malformedApplyFailed = $false
+    try {
+        & $scriptPath -Platform Linux -PolicyPath $malformedPolicyPath -OnlyFeature Rewards -Apply -BackupDirectory $malformedApplyBackupDirectory *>&1 | Out-Null
+    }
+    catch {
+        $malformedApplyFailed = $true
+    }
+    if (-not $malformedApplyFailed) {
+        throw 'Apply did not fail on malformed Linux policy JSON.'
+    }
+    if ((Test-Path -LiteralPath $malformedApplyBackupDirectory) -and (@(Get-ChildItem -LiteralPath $malformedApplyBackupDirectory -Filter 'BraveDebloater-*.json').Count -gt 0)) {
+        throw 'Apply wrote a backup before failing on malformed Linux policy JSON.'
+    }
+    $malformedAfterApply = Get-Content -LiteralPath $malformedPolicyPath -Raw
+    if ($malformedAfterApply -ne $malformedPolicyContent) {
+        throw 'Apply modified a malformed Linux policy JSON file.'
+    }
 
     $customLinuxBackup = Join-Path $tempRoot 'custom-linux-backup.json'
     [ordered]@{

@@ -302,6 +302,9 @@ foreach ($name in $obsoletePolicyNames) {
 
 $backupPath = $null
 if ($applyChanges -and -not $NoBackup) {
+    if ($policyTarget.Kind -eq 'JsonFile' -and (Test-Path -LiteralPath $policyTarget.Path)) {
+        Get-ManagedPolicyJson -Path $policyTarget.Path | Out-Null
+    }
     $backupPath = New-Backup -Directory $BackupDirectory -ScopeName $Scope -Target $policyTarget -PolicyNames $backupPolicyNames.ToArray() -ProfileRoot $ProfileRoot -Manifest $manifest
     Write-Step "Backup written to $backupPath"
 }
