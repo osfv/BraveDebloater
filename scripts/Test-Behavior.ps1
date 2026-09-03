@@ -480,6 +480,90 @@ try {
     $iosSupportedDryRun = (& $scriptPath -Platform iOS -OnlyFeature Rewards *>&1 | Out-String)
     Assert-TextContains -Text $iosSupportedDryRun -Expected 'Would set BraveRewardsDisabled' -Context 'iOS supported dry-run output'
 
+    $regExportPath = Join-Path $tempRoot 'brave-policies.reg'
+    $regExportOutput = (& $scriptPath -Platform Windows -OnlyFeature Rewards,NetworkPrediction -ProfileRoot $missingProfileRoot -ExportPolicyPath $regExportPath *>&1 | Out-String)
+    Assert-TextContains -Text $regExportOutput -Expected 'Exported 2 policy value(s) for Windows' -Context 'Windows .reg export output'
+    Assert-TextContains -Text $regExportOutput -Expected 'reg import' -Context 'Windows .reg export output'
+    $regBytes = [System.IO.File]::ReadAllBytes($regExportPath)
+    if ($regBytes.Length -lt 2 -or $regBytes[0] -ne 0xff -or $regBytes[1] -ne 0xfe) {
+        throw 'Windows .reg export was not written as UTF-16LE with a byte order mark.'
+    }
+    $regExport = [System.IO.File]::ReadAllText($regExportPath, [System.Text.Encoding]::Unicode)
+    Assert-TextContains -Text $regExport -Expected 'Windows Registry Editor Version 5.00' -Context 'Windows .reg export'
+    Assert-TextContains -Text $regExport -Expected '[HKEY_CURRENT_USER\Software\Policies\BraveSoftware\Brave]' -Context 'Windows .reg export'
+    Assert-TextContains -Text $regExport -Expected '"BraveRewardsDisabled"=dword:00000001' -Context 'Windows .reg export'
+    Assert-TextContains -Text $regExport -Expected '"NetworkPredictionOptions"=dword:00000002' -Context 'Windows .reg export'
+    Assert-TextDoesNotContain -Text $regExport -Unexpected '<plist' -Context 'Windows .reg export'
+
+    $regExportMachinePath = Join-Path $tempRoot 'brave-policies-machine.reg'
+    & $scriptPath -Platform Windows -Scope LocalMachine -OnlyFeature Rewards -ProfileRoot $missingProfileRoot -ExportPolicyPath $regExportMachinePath *>&1 | Out-Null
+    $regExportMachine = [System.IO.File]::ReadAllText($regExportMachinePath, [System.Text.Encoding]::Unicode)
+    Assert-TextContains -Text $regExportMachine -Expected '[HKEY_LOCAL_MACHINE\Software\Policies\BraveSoftware\Brave]' -Context 'Windows LocalMachine .reg export'
+
+    $regExportNonWindowsFailed = $false
+    try {
+        & $scriptPath -Platform Linux -OnlyFeature Rewards -ExportPolicyPath (Join-Path $tempRoot 'wrong-platform.reg') | Out-Null
+    }
+    catch {
+        $regExportNonWindowsFailed = $_.Exception.Message -match 'needs a Windows registry target'
+    }
+    if (-not $regExportNonWindowsFailed) {
+        throw '.reg export did not reject a non-registry target.'
+    }
+
+    # Previews must work without elevation on every platform; only -Apply performs the admin/root checks.
+    $machinePreview = (& $scriptPath -Platform Windows -Scope LocalMachine -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String)
+    Assert-TextContains -Text $machinePreview -Expected 'Scope: LocalMachine (Registry::HKEY_LOCAL_MACHINE\Software\Policies\BraveSoftware\Brave)' -Context 'unelevated LocalMachine preview'
+    Assert-TextContains -Text $machinePreview -Expected 'Dry-run complete.' -Context 'unelevated LocalMachine preview'
+    $macMachinePreview = (& $scriptPath -Platform macOS -Scope LocalMachine -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String)
+    Assert-TextContains -Text $macMachinePreview -Expected 'Dry-run complete.' -Context 'unelevated macOS LocalMachine preview'
+    $linuxDefaultPreview = (& $scriptPath -Platform Linux -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String)
+    Assert-TextContains -Text $linuxDefaultPreview -Expected '/etc/brave/policies/managed/BraveDebloater.json' -Context 'unelevated Linux default path preview'
+    Assert-TextContains -Text $linuxDefaultPreview -Expected 'Dry-run complete.' -Context 'unelevated Linux default path preview'
+
+    $ignoredPolicyPathOutput = (& $scriptPath -Platform Windows -OnlyFeature Rewards -ProfileRoot $missingProfileRoot -PolicyPath (Join-Path $tempRoot 'ignored.json') *>&1 | Out-String)
+    Assert-TextContains -Text $ignoredPolicyPathOutput -Expected '-PolicyPath is ignored for Windows CurrentUser policies' -Context 'ignored -PolicyPath output'
+    $linuxPolicyPathOutput = (& $scriptPath -Platform Linux -OnlyFeature Rewards -ProfileRoot $missingProfileRoot -PolicyPath (Join-Path $tempRoot 'used.json') *>&1 | Out-String)
+    Assert-TextDoesNotContain -Text $linuxPolicyPathOutput -Unexpected '-PolicyPath is ignored' -Context 'Linux -PolicyPath output'
+
+    # A forced Windows platform on another OS has no LOCALAPPDATA; the run must still preview cleanly.
+    $forcedWindowsOutput = (& $scriptPath -Platform Windows -OnlyFeature Rewards *>&1 | Out-String)
+    Assert-TextContains -Text $forcedWindowsOutput -Expected 'Would set BraveRewardsDisabled' -Context 'forced Windows platform preview'
+
+    $utf8ProfileRoot = Join-Path $tempRoot 'Utf8ProfileRoot'
+    $utf8ProfileDirectory = Join-Path $utf8ProfileRoot 'Default'
+    New-Item -ItemType Directory -Path $utf8ProfileDirectory -Force | Out-Null
+    $utf8Preferences = Join-Path $utf8ProfileDirectory 'Preferences'
+    $utf8Name = [char]0x004A + [char]0x006F + [char]0x0073 + [char]0x00E9 + ' ' + [char]0x2713
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($utf8Preferences, ('{"profile":{"name":"' + $utf8Name + '"},"brave":{"rewards":{"enabled":true}}}'), $utf8NoBom)
+    $utf8PolicyPath = Join-Path $tempRoot 'utf8-policy.json'
+    $utf8BackupDirectory = Join-Path $tempRoot 'Utf8Backups'
+    $utf8ApplyOutput = (& $scriptPath -Platform Linux -PolicyPath $utf8PolicyPath -OnlyFeature Rewards -IncludeProfilePreferences -ProfileRoot $utf8ProfileRoot -BackupDirectory $utf8BackupDirectory -Apply *>&1 | Out-String)
+    Assert-TextContains -Text $utf8ApplyOutput -Expected 'Updated profile preferences in' -Context 'UTF-8 profile apply output'
+    $utf8Bytes = [System.IO.File]::ReadAllBytes($utf8Preferences)
+    if ($utf8Bytes.Length -ge 3 -and $utf8Bytes[0] -eq 0xef -and $utf8Bytes[1] -eq 0xbb -and $utf8Bytes[2] -eq 0xbf) {
+        throw 'Profile preference cleanup wrote a UTF-8 BOM to Preferences.'
+    }
+    $utf8Json = [System.IO.File]::ReadAllText($utf8Preferences, $utf8NoBom) | ConvertFrom-Json
+    if ([string]$utf8Json.profile.name -ne $utf8Name) {
+        throw "Profile preference cleanup changed non-ASCII text from '$utf8Name' to '$($utf8Json.profile.name)'."
+    }
+    if ($utf8Json.brave.rewards.enabled -ne $false) {
+        throw 'Profile preference cleanup did not apply the Rewards patch.'
+    }
+    $utf8PolicyBytes = [System.IO.File]::ReadAllBytes($utf8PolicyPath)
+    if ($utf8PolicyBytes.Length -ge 3 -and $utf8PolicyBytes[0] -eq 0xef -and $utf8PolicyBytes[1] -eq 0xbb -and $utf8PolicyBytes[2] -eq 0xbf) {
+        throw 'Linux policy apply wrote a UTF-8 BOM to the managed policy file.'
+    }
+    $utf8Backup = @(Get-ChildItem -LiteralPath $utf8BackupDirectory -Filter 'BraveDebloater-*.json')[0].FullName
+    $utf8RestoreOutput = (& $scriptPath -UndoFromBackup $utf8Backup -PolicyPath $utf8PolicyPath -ProfileRoot $utf8ProfileRoot -Apply *>&1 | Out-String)
+    Assert-TextContains -Text $utf8RestoreOutput -Expected 'Restored profile file' -Context 'UTF-8 profile restore output'
+    $restoredJson = [System.IO.File]::ReadAllText($utf8Preferences, $utf8NoBom) | ConvertFrom-Json
+    if ([string]$restoredJson.profile.name -ne $utf8Name -or $restoredJson.brave.rewards.enabled -ne $true) {
+        throw 'Profile restore did not bring back the original Preferences content.'
+    }
+
     Write-Host 'Behavior checks passed.'
 }
 finally {

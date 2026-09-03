@@ -92,7 +92,7 @@ function Invoke-ProfilePreferenceCleanup {
         return
     }
 
-    if ($DoApply -and (Get-Process -Name brave -ErrorAction SilentlyContinue)) {
+    if ($DoApply -and (Test-BraveRunning)) {
         Write-Warning 'Brave is running, so profile preference cleanup was skipped. Close Brave, then rerun with -IncludeProfilePreferences -Apply.'
         return
     }
@@ -113,7 +113,7 @@ function Invoke-ProfilePreferenceCleanup {
 
         $json = $null
         try {
-            $raw = Get-Content -LiteralPath $file -Raw
+            $raw = Get-Utf8FileContent -Path $file
             if ([string]::IsNullOrWhiteSpace($raw)) {
                 throw 'The file is empty.'
             }

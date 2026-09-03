@@ -212,9 +212,14 @@ if ($List) {
     return
 }
 
-$policyTarget = Get-PolicyTarget -PlatformName $platformName -ScopeName $Scope -OverridePath $PolicyPath -UserSid $UserSid -Apply:$applyChanges
+# Previews and exports never write to the policy target, so they must not demand elevation.
+# Only a real apply run performs the administrator/root and loaded-hive checks.
+$policyTarget = Get-PolicyTarget -PlatformName $platformName -ScopeName $Scope -OverridePath $PolicyPath -UserSid $UserSid -Apply:$applyChanges -ReadOnly:(-not $applyChanges)
 if ($policyTarget.Kind -eq 'MobileMDM' -and $applyChanges) {
     throw "$platformName policies require MDM deployment. This script can list or export the selected policies, but it cannot apply them on-device."
+}
+if (-not [string]::IsNullOrWhiteSpace($PolicyPath) -and $policyTarget.Kind -notin @('JsonFile', 'MacOSPlist')) {
+    Write-Warning "-PolicyPath is ignored for $platformName $Scope policies, which are written to $($policyTarget.Path). It only selects a file for Linux or macOS LocalMachine targets."
 }
 
 # Enforce the iOS/iPadOS MDM allowlist for every run (dry-run, apply, and export) so the
@@ -223,8 +228,13 @@ Assert-MobilePolicySupport -PlatformName $platformName -PolicyNames $policyNames
 
 if (-not [string]::IsNullOrWhiteSpace($ExportPolicyPath)) {
     $payload = Get-PolicyPayload -PolicyNames $policyNames.ToArray() -PolicyDefinitions $policyDefinitions
-    Export-PolicyPayload -Target $policyTarget -Payload $payload -Path $ExportPolicyPath
-    Write-Step "Exported $($policyNames.Count) policy value(s) for $platformName to $ExportPolicyPath. Apply that file with your device or policy manager."
+    $exportFormat = Export-PolicyPayload -Target $policyTarget -Payload $payload -Path $ExportPolicyPath
+    $exportHint = switch ($exportFormat) {
+        'Reg' { 'Double-click it or run `reg import` on the target Windows machine, then restart Brave.' }
+        'MobileConfig' { 'Install that profile with your MDM or device manager.' }
+        default { 'Apply that file with your device or policy manager.' }
+    }
+    Write-Step "Exported $($policyNames.Count) policy value(s) for $platformName to $ExportPolicyPath. $exportHint"
     return
 }
 
@@ -257,6 +267,10 @@ if (-not $applyChanges) {
         Write-Step 'Dry-run mode. No policy, backup, or profile files will be changed.'
     }
     Write-Step 'Review the [dry-run] lines. Add -Apply only when the planned changes look right.'
+    $elevationHint = Get-PolicyTargetElevationHint -Target $policyTarget -ScopeName $Scope -UserSid $UserSid -OverridePath $PolicyPath
+    if (-not [string]::IsNullOrWhiteSpace($elevationHint)) {
+        Write-Step "Note: $elevationHint"
+    }
 }
 
 if ($IncludeProfilePreferences -and $applyChanges -and $NoBackup) {
@@ -269,6 +283,7 @@ if ($applyChanges -and -not $NoBackup) {
     Write-Step "Backup written to $backupPath"
 }
 
+$appliedPolicyCount = 0
 foreach ($policyName in $policyNames) {
     $definition = $policyDefinitions[$policyName]
     if (-not $applyChanges) {
@@ -278,6 +293,7 @@ foreach ($policyName in $policyNames) {
 
     if ($PSCmdlet.ShouldProcess($policyTarget.Path, "Set $policyName to $($definition.value)")) {
         Set-PolicyValue -Target $policyTarget -Name $policyName -Definition $definition
+        $appliedPolicyCount++
         Write-Step "Set $policyName."
     }
 }
@@ -288,12 +304,12 @@ if ($IncludeProfilePreferences) {
 
 if (-not $applyChanges) {
     if ($isWhatIf) {
-        Write-Step 'WhatIf complete. No changes were made. Rerun with -Apply without -WhatIf when you are ready.'
+        Write-Step "WhatIf complete. $($policyNames.Count) policy value(s) planned, no changes were made. Rerun with -Apply without -WhatIf when you are ready."
     }
     else {
-        Write-Step 'Dry-run complete. No changes were made. Rerun with -Apply when you are ready.'
+        Write-Step "Dry-run complete. $($policyNames.Count) policy value(s) planned, no changes were made. Rerun with -Apply when you are ready."
     }
 }
 else {
-    Write-Step 'Done. Restart Brave, then open brave://policy to check the applied policies.'
+    Write-Step "Done. Set $appliedPolicyCount of $($policyNames.Count) policy value(s). Restart Brave, then open brave://policy to check the applied policies."
 }

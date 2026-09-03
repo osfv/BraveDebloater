@@ -88,14 +88,40 @@ function Get-RequiredPropertyValue {
     return $property.Value
 }
 
-function Set-JsonFileContent {
+function Get-Utf8FileContent {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # Windows PowerShell 5.1 reads files as ANSI by default, which mangles the UTF-8 that Brave
+    # and this tool write. Always read policy, backup, and Preferences JSON as UTF-8.
+    return [System.IO.File]::ReadAllText((Get-FullFileSystemPath -Path $Path), [System.Text.Encoding]::UTF8)
+}
+
+function Get-JsonFileContent {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $raw = Get-Utf8FileContent -Path $Path
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        throw "The file is empty: $Path"
+    }
+
+    return ($raw | ConvertFrom-Json)
+}
+
+function Set-TextFileContent {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)]$Object,
-        [int]$Depth = 20
+        [Parameter(Mandatory = $true)][string]$Content,
+        [System.Text.Encoding]$Encoding = $null
     )
 
-    $directory = Split-Path -Parent $Path
+    # Brave and most policy readers expect UTF-8 without a byte order mark. Windows PowerShell 5.1
+    # `Set-Content -Encoding UTF8` writes a BOM, so write the bytes directly instead.
+    if ($null -eq $Encoding) {
+        $Encoding = New-Object System.Text.UTF8Encoding($false)
+    }
+
+    $fullPath = Get-FullFileSystemPath -Path $Path
+    $directory = Split-Path -Parent $fullPath
     if (-not [string]::IsNullOrWhiteSpace($directory) -and -not (Test-Path -LiteralPath $directory)) {
         New-Item -ItemType Directory -Path $directory -Force | Out-Null
     }
@@ -103,8 +129,8 @@ function Set-JsonFileContent {
     $tempDirectory = if ([string]::IsNullOrWhiteSpace($directory)) { '.' } else { $directory }
     $tempPath = Join-Path $tempDirectory ('.{0}.tmp' -f [guid]::NewGuid().ToString('N'))
     try {
-        $Object | ConvertTo-Json -Depth $Depth | Set-Content -LiteralPath $tempPath -Encoding UTF8
-        Move-Item -LiteralPath $tempPath -Destination $Path -Force
+        [System.IO.File]::WriteAllText($tempPath, $Content, $Encoding)
+        Move-Item -LiteralPath $tempPath -Destination $fullPath -Force
     }
     finally {
         if (Test-Path -LiteralPath $tempPath) {
@@ -113,26 +139,23 @@ function Set-JsonFileContent {
     }
 }
 
-function Set-TextFileContent {
+function Set-JsonFileContent {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$Content
+        [Parameter(Mandatory = $true)]$Object,
+        [int]$Depth = 20
     )
 
-    $directory = Split-Path -Parent $Path
-    if (-not [string]::IsNullOrWhiteSpace($directory) -and -not (Test-Path -LiteralPath $directory)) {
-        New-Item -ItemType Directory -Path $directory -Force | Out-Null
-    }
+    $json = $Object | ConvertTo-Json -Depth $Depth
+    Set-TextFileContent -Path $Path -Content ($json + [Environment]::NewLine)
+}
 
-    $tempDirectory = if ([string]::IsNullOrWhiteSpace($directory)) { '.' } else { $directory }
-    $tempPath = Join-Path $tempDirectory ('.{0}.tmp' -f [guid]::NewGuid().ToString('N'))
-    try {
-        Set-Content -LiteralPath $tempPath -Value $Content -Encoding UTF8
-        Move-Item -LiteralPath $tempPath -Destination $Path -Force
-    }
-    finally {
-        if (Test-Path -LiteralPath $tempPath) {
-            Remove-Item -LiteralPath $tempPath -Force
-        }
-    }
+function Get-BraveProcess {
+    # Windows and Linux run Brave as `brave`; macOS runs it as `Brave Browser`, `Brave Browser Beta`,
+    # or `Brave Browser Nightly`. Check every name so profile writes are never attempted while Brave is open.
+    return @(Get-Process -Name 'brave', 'Brave Browser*' -ErrorAction SilentlyContinue)
+}
+
+function Test-BraveRunning {
+    return (@(Get-BraveProcess).Count -gt 0)
 }

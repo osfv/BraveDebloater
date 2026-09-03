@@ -123,7 +123,7 @@ function Show-DoctorReport {
         }
     }
 
-    $braveProcesses = @(Get-Process -Name brave -ErrorAction SilentlyContinue)
+    $braveProcesses = @(Get-BraveProcess)
     if ($braveProcesses.Count -gt 0) {
         Write-Step "Brave process: running ($($braveProcesses.Count) process(es)). Profile preference cleanup would be skipped until Brave is closed."
     }

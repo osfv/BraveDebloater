@@ -6,7 +6,7 @@ function Get-Manifest {
         throw "Cannot find policy manifest at $manifestPath."
     }
 
-    return Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    return (Get-JsonFileContent -Path $manifestPath)
 }
 
 function Resolve-PresetPolicies {
