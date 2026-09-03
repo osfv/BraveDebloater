@@ -11,15 +11,15 @@ Official sources used for this pass:
 
 Downloaded template evidence:
 
-- Template version: `151.1.94.91`
-- Archive timestamp: July 22, 2026
+- Template version: `153.1.96.44`
+- Archive timestamp: September 3, 2026
 - Checked files: `VERSION` and `windows/admx/brave.admx`
 
 Targeted Reddit, Brave Community, and GitHub searches did not produce a newer or more authoritative debloatable-policy source than Brave's Help Center and template zip.
 
 ## What Changed
 
-The manifest version in `config/policies.json` changed from `148.1.91.121` to `151.1.94.91`.
+The manifest version in `config/policies.json` changed from `151.1.94.91` to `153.1.96.44`.
 
 These official-template policies were added because they match BraveDebloater's scope:
 
