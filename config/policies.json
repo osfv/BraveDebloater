@@ -21,7 +21,8 @@
   },
   "deprecatedPolicies": [
     "PrivacySandboxPromptEnabled",
-    "PromotionalTabsEnabled"
+    "PromotionalTabsEnabled",
+    "IPFSEnabled"
   ],
   "safety": {
     "blockedPolicyNames": [
@@ -59,7 +60,6 @@
       "BraveTalkDisabled",
       "BravePlaylistEnabled",
       "EmailAliasesEnabled",
-      "IPFSEnabled",
       "BraveSpeedreaderEnabled",
       "BraveWaybackMachineEnabled",
       "BraveP3AEnabled",
@@ -166,14 +166,6 @@
         "EmailAliasesEnabled"
       ],
       "reason": "Disable Brave Email Aliases entry points."
-    },
-    {
-      "id": "IPFS",
-      "label": "IPFS",
-      "policies": [
-        "IPFSEnabled"
-      ],
-      "reason": "Disable IPFS integration."
     },
     {
       "id": "Speedreader",
@@ -427,12 +419,6 @@
       "value": 0,
       "category": "Brave feature",
       "reason": "Disable Brave Email Aliases."
-    },
-    "IPFSEnabled": {
-      "type": "DWord",
-      "value": 0,
-      "category": "Brave feature",
-      "reason": "Disable IPFS integration."
     },
     "BraveSpeedreaderEnabled": {
       "type": "DWord",

@@ -24,9 +24,8 @@ The manifest version in `config/policies.json` changed from `151.1.94.91` to `15
 These official-template policies were added because they match BraveDebloater's scope:
 
 - `EmailAliasesEnabled = 0`
-- `IPFSEnabled = 0`
 
-The manifest's `deprecatedPolicies` list records names that must stay out of active presets. The current template marks `PrivacySandboxPromptEnabled` and `PromotionalTabsEnabled` as deprecated. They are excluded from the manifest; `PromotionsEnabled = 0` is retained as the supported policy for promotional content and avoids the deprecated policy override.
+The manifest's `deprecatedPolicies` list records names that must stay out of active presets. The current template still lists `PrivacySandboxPromptEnabled`, `PromotionalTabsEnabled`, and `IPFSEnabled`, but places them under the `DeprecatedPolicies` category. They stay out of the active manifest; `PromotionsEnabled = 0` is retained as the supported policy for promotional content. Apply and dry-run remove leftover copies of those names from the selected Brave policy target so older installs do not keep showing them as obsolete in `brave://policy`.
 
 These official-template policies were checked and left out:
 
@@ -58,7 +57,8 @@ iOS/iPadOS export validation now reads that allow-list from the manifest instead
 It checks that:
 
 - the manifest version matches the zip `VERSION`;
-- every manifest policy exists in `windows/admx/brave.admx`;
+- every manifest policy exists in `windows/admx/brave.admx` and is not under `DeprecatedPolicies`;
+- every `deprecatedPolicies` name is absent from the ADMX template, or still present only under `DeprecatedPolicies` / `deprecated="true"`;
 - every iOS allow-listed policy is defined in the manifest.
 
 `scripts/Test-Behavior.ps1` also validates target-user registry safety. It checks that `-UserSid` builds only the exact Brave policy path under `HKEY_USERS`, rejects path-like SID input and non-Windows or machine-scope combinations, requires elevation for apply target construction, and requires the same explicit SID to preview a restore.

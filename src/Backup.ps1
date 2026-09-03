@@ -56,7 +56,8 @@ function Assert-BackupRegistryPath {
 function Assert-BackupPolicyList {
     param(
         [Parameter(Mandatory = $true)]$Backup,
-        [Parameter(Mandatory = $true)][hashtable]$PolicyDefinitions
+        [Parameter(Mandatory = $true)][hashtable]$PolicyDefinitions,
+        [string[]]$DeprecatedPolicyNames = @()
     )
 
     if ($null -eq $Backup.PSObject.Properties['policies']) {
@@ -70,7 +71,8 @@ function Assert-BackupPolicyList {
         if (-not ($existed -is [bool])) {
             throw "Backup policy '$name' has a non-boolean 'existed' value."
         }
-        if (-not $PolicyDefinitions.ContainsKey($name)) {
+        $isDeprecated = $DeprecatedPolicyNames -contains $name
+        if (-not $PolicyDefinitions.ContainsKey($name) -and -not $isDeprecated) {
             throw "Backup policy '$name' is not managed by this manifest."
         }
 
@@ -79,7 +81,7 @@ function Assert-BackupPolicyList {
             if (@('DWord', 'String') -notcontains $kind) {
                 throw "Backup policy '$name' has unsupported registry kind '$kind'."
             }
-            if ($kind -ne [string]$PolicyDefinitions[$name].type) {
+            if (-not $isDeprecated -and $kind -ne [string]$PolicyDefinitions[$name].type) {
                 throw "Backup policy '$name' registry kind '$kind' does not match the manifest type '$($PolicyDefinitions[$name].type)'."
             }
 
@@ -144,7 +146,7 @@ function Assert-BackupObject {
     Assert-BackupRegistryPath -RegistryPath $registryPath -AllowedPolicyPath $AllowedPolicyPath -AllowedUserPolicyPath $AllowedUserPolicyPath -DoApply:$DoApply
 
     $policyDefinitions = Get-ManifestMap -Object $Manifest.policies
-    Assert-BackupPolicyList -Backup $Backup -PolicyDefinitions $policyDefinitions
+    Assert-BackupPolicyList -Backup $Backup -PolicyDefinitions $policyDefinitions -DeprecatedPolicyNames @(Get-DeprecatedPolicyNames -Manifest $Manifest)
 
     $profileFiles = @()
     if ($null -ne $Backup.PSObject.Properties['profileFiles']) {

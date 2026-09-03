@@ -60,9 +60,45 @@ try {
         Where-Object { $_ -notmatch '_recommended$' } |
         Sort-Object -Unique)
 
+    $deprecatedInTemplate = @{}
+    foreach ($policyMatch in [regex]::Matches($admx, '<policy\b[^>]*\bname="([^"]+)"[^>]*>\s*<parentCategory\s+ref="DeprecatedPolicies"\s*/>')) {
+        $templatePolicyName = $policyMatch.Groups[1].Value
+        if ($templatePolicyName -match '_recommended$') {
+            continue
+        }
+        $deprecatedInTemplate[$templatePolicyName] = $true
+    }
+
+    foreach ($tagMatch in [regex]::Matches($admx, '<policy\b[^>]*>')) {
+        $tag = $tagMatch.Value
+        $nameMatch = [regex]::Match($tag, '\bname="([^"]+)"')
+        if (-not $nameMatch.Success) {
+            continue
+        }
+
+        $templatePolicyName = $nameMatch.Groups[1].Value
+        if ($templatePolicyName -match '_recommended$' -or $tag -notmatch '\bdeprecated="true"') {
+            continue
+        }
+        $deprecatedInTemplate[$templatePolicyName] = $true
+    }
+
     foreach ($policyName in @($manifest.policies.PSObject.Properties.Name)) {
         if ($templatePolicies -notcontains $policyName) {
             throw "Manifest policy '$policyName' is not present in the official Brave ADMX template."
+        }
+        if ($deprecatedInTemplate.ContainsKey($policyName)) {
+            throw "Manifest policy '$policyName' is marked deprecated in the official Brave ADMX template."
+        }
+    }
+
+    $deprecatedPolicyNames = @()
+    if ($null -ne $manifest.PSObject.Properties['deprecatedPolicies']) {
+        $deprecatedPolicyNames = @($manifest.deprecatedPolicies)
+    }
+    foreach ($policyName in $deprecatedPolicyNames) {
+        if ($templatePolicies -contains $policyName -and -not $deprecatedInTemplate.ContainsKey($policyName)) {
+            throw "Manifest deprecatedPolicies entry '$policyName' is still present in the official Brave ADMX template without a DeprecatedPolicies category."
         }
     }
 
