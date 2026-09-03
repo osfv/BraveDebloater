@@ -9,6 +9,24 @@ function Get-Manifest {
     return (Get-JsonFileContent -Path $manifestPath)
 }
 
+function Get-DeprecatedPolicyNames {
+    param([Parameter(Mandatory = $true)]$Manifest)
+
+    $names = New-Object System.Collections.Generic.List[string]
+    if ($null -eq $Manifest.PSObject.Properties['deprecatedPolicies']) {
+        return $names.ToArray()
+    }
+
+    foreach ($name in @($Manifest.deprecatedPolicies)) {
+        $text = [string]$name
+        if (-not [string]::IsNullOrWhiteSpace($text)) {
+            Add-StringIfMissing -List $names -Value $text
+        }
+    }
+
+    return $names.ToArray()
+}
+
 function Resolve-PresetPolicies {
     param(
         [Parameter(Mandatory = $true)][string]$Name,

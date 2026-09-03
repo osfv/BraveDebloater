@@ -181,18 +181,30 @@ function Show-DoctorReport {
     }
     $featureRows | Format-Table -AutoSize -Wrap
 
+    $deprecatedPolicyNames = @(Get-DeprecatedPolicyNames -Manifest $Manifest)
+    $obsoleteRows = New-Object System.Collections.Generic.List[object]
     $unknownRows = New-Object System.Collections.Generic.List[object]
     foreach ($report in $reports) {
         foreach ($entry in @($report.Entries)) {
-            if (-not $PolicyDefinitions.ContainsKey([string]$entry.Name)) {
-                [void]$unknownRows.Add([pscustomobject]@{
-                        Scope = $report.Scope
-                        Policy = [string]$entry.Name
-                        Value = $entry.Value
-                        Kind = [string]$entry.Kind
-                    })
+            $entryName = [string]$entry.Name
+            $row = [pscustomobject]@{
+                Scope = $report.Scope
+                Policy = $entryName
+                Value = $entry.Value
+                Kind = [string]$entry.Kind
+            }
+            if ($deprecatedPolicyNames -contains $entryName) {
+                [void]$obsoleteRows.Add($row)
+            }
+            elseif (-not $PolicyDefinitions.ContainsKey($entryName)) {
+                [void]$unknownRows.Add($row)
             }
         }
+    }
+
+    if ($obsoleteRows.Count -gt 0) {
+        Write-Step 'Obsolete leftover policies: detected. Rerun with -Apply to remove them.'
+        $obsoleteRows.ToArray() | Format-Table -AutoSize -Wrap
     }
 
     if ($unknownRows.Count -gt 0) {

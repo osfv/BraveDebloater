@@ -261,9 +261,18 @@ function Get-PolicyValue {
     }
 
     if ($Target.Kind -eq 'MacOSDefaults' -or $Target.Kind -eq 'MacOSPlist') {
+        if (-not (Test-Path -LiteralPath '/usr/bin/defaults')) {
+            return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
+        }
+
         $arguments = if ($Target.Kind -eq 'MacOSDefaults') { @('read', $Target.Path, $Name) } else { @('read', ($Target.Path -replace '\.plist$', ''), $Name) }
-        $output = & /usr/bin/defaults @arguments 2>$null
-        $readSucceeded = $LASTEXITCODE -eq 0
+        try {
+            $output = & /usr/bin/defaults @arguments 2>$null
+            $readSucceeded = $LASTEXITCODE -eq 0
+        }
+        catch {
+            return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true }
+        }
         # `defaults read` exits non-zero when the key is absent (the common case during a scan).
         # Clear LASTEXITCODE so a missing key does not leak a failure exit code to the script.
         $global:LASTEXITCODE = 0
@@ -277,6 +286,27 @@ function Get-PolicyValue {
     }
 
     return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
+}
+
+function Get-PresentPolicyNames {
+    param(
+        [Parameter(Mandatory = $true)]$Target,
+        [string[]]$PolicyNames
+    )
+
+    $present = New-Object System.Collections.Generic.List[string]
+    foreach ($policyName in @($PolicyNames)) {
+        if ([string]::IsNullOrWhiteSpace([string]$policyName)) {
+            continue
+        }
+
+        $value = Get-PolicyValue -Target $Target -Name $policyName
+        if ($value.Exists -and -not $value.ReadError) {
+            [void]$present.Add($policyName)
+        }
+    }
+
+    return $present.ToArray()
 }
 
 function Get-PolicySnapshot {

@@ -277,9 +277,24 @@ if ($IncludeProfilePreferences -and $applyChanges -and $NoBackup) {
     throw 'Profile preference cleanup requires backups. Remove -NoBackup, or omit -IncludeProfilePreferences and apply policy-only changes.'
 }
 
+$obsoletePolicyNames = New-Object System.Collections.Generic.List[string]
+if ($policyTarget.Kind -ne 'MobileMDM') {
+    foreach ($name in @(Get-PresentPolicyNames -Target $policyTarget -PolicyNames @(Get-DeprecatedPolicyNames -Manifest $manifest))) {
+        [void]$obsoletePolicyNames.Add($name)
+    }
+}
+
+$backupPolicyNames = New-Object System.Collections.Generic.List[string]
+foreach ($name in $policyNames) {
+    [void]$backupPolicyNames.Add($name)
+}
+foreach ($name in $obsoletePolicyNames) {
+    Add-StringIfMissing -List $backupPolicyNames -Value $name
+}
+
 $backupPath = $null
 if ($applyChanges -and -not $NoBackup) {
-    $backupPath = New-Backup -Directory $BackupDirectory -ScopeName $Scope -Target $policyTarget -PolicyNames $policyNames.ToArray() -ProfileRoot $ProfileRoot -Manifest $manifest
+    $backupPath = New-Backup -Directory $BackupDirectory -ScopeName $Scope -Target $policyTarget -PolicyNames $backupPolicyNames.ToArray() -ProfileRoot $ProfileRoot -Manifest $manifest
     Write-Step "Backup written to $backupPath"
 }
 
@@ -298,18 +313,34 @@ foreach ($policyName in $policyNames) {
     }
 }
 
+$removedObsoleteCount = 0
+foreach ($policyName in $obsoletePolicyNames) {
+    if (-not $applyChanges) {
+        Write-DryRun "Would remove $policyName because Brave marks it obsolete."
+        continue
+    }
+
+    if ($PSCmdlet.ShouldProcess($policyTarget.Path, "Remove obsolete policy $policyName")) {
+        Remove-PolicyValue -Target $policyTarget -Name $policyName
+        $removedObsoleteCount++
+        Write-Step "Removed obsolete $policyName."
+    }
+}
+
 if ($IncludeProfilePreferences) {
     Invoke-ProfilePreferenceCleanup -Root $ProfileRoot -Manifest $manifest -BackupPath $backupPath -SelectedFeatureIds $selectedFeatureIds -UseFeatureFilter:$customFeatureRequested -DoApply:$applyChanges
 }
 
+$obsoletePlanSummary = if ($obsoletePolicyNames.Count -gt 0) { ", $($obsoletePolicyNames.Count) obsolete leftover(s) to remove" } else { '' }
+$obsoleteDoneSummary = if ($removedObsoleteCount -gt 0) { " Removed $removedObsoleteCount obsolete leftover(s)." } else { '' }
 if (-not $applyChanges) {
     if ($isWhatIf) {
-        Write-Step "WhatIf complete. $($policyNames.Count) policy value(s) planned, no changes were made. Rerun with -Apply without -WhatIf when you are ready."
+        Write-Step "WhatIf complete. $($policyNames.Count) policy value(s) planned$obsoletePlanSummary, no changes were made. Rerun with -Apply without -WhatIf when you are ready."
     }
     else {
-        Write-Step "Dry-run complete. $($policyNames.Count) policy value(s) planned, no changes were made. Rerun with -Apply when you are ready."
+        Write-Step "Dry-run complete. $($policyNames.Count) policy value(s) planned$obsoletePlanSummary, no changes were made. Rerun with -Apply when you are ready."
     }
 }
 else {
-    Write-Step "Done. Set $appliedPolicyCount of $($policyNames.Count) policy value(s). Restart Brave, then open brave://policy to check the applied policies."
+    Write-Step "Done. Set $appliedPolicyCount of $($policyNames.Count) policy value(s).$obsoleteDoneSummary Restart Brave, then open brave://policy to check the applied policies."
 }

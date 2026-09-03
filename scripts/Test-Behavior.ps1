@@ -93,6 +93,11 @@ try {
     Assert-TextDoesNotContain -Text $onlyOutput -Unexpected 'BraveVPNDisabled' -Context '-OnlyFeature output'
     Assert-TextDoesNotContain -Text $onlyOutput -Unexpected 'BraveAIChatEnabled' -Context '-OnlyFeature output'
 
+    $extremeListOutput = (& $scriptPath -Preset Extreme -List *>&1 | Out-String)
+    Assert-TextDoesNotContain -Text $extremeListOutput -Unexpected 'PrivacySandboxPromptEnabled' -Context 'Extreme -List output'
+    Assert-TextDoesNotContain -Text $extremeListOutput -Unexpected 'PromotionalTabsEnabled' -Context 'Extreme -List output'
+    Assert-TextDoesNotContain -Text $extremeListOutput -Unexpected 'IPFSEnabled' -Context 'Extreme -List output'
+
     $onlyPatchOutput = (& $scriptPath -OnlyFeature Rewards -List -IncludeProfilePreferences *>&1 | Out-String)
     Assert-TextContains -Text $onlyPatchOutput -Expected 'brave.rewards.enabled' -Context '-OnlyFeature profile patch output'
     Assert-TextDoesNotContain -Text $onlyPatchOutput -Unexpected 'brave.new_tab_page.show_branded_background_image' -Context '-OnlyFeature profile patch output'
@@ -402,6 +407,75 @@ try {
     if ($linuxPolicyJson.BraveRewardsDisabled -isnot [bool] -or -not $linuxPolicyJson.BraveRewardsDisabled) {
         throw 'Linux policy apply did not write BraveRewardsDisabled = true.'
     }
+    Assert-TextDoesNotContain -Text $linuxApplyOutput -Unexpected 'obsolete' -Context 'Linux policy apply output'
+
+    $leftoverPolicyPath = Join-Path $tempRoot 'leftover-obsolete-policy.json'
+    $leftoverBackupDirectory = Join-Path $tempRoot 'LeftoverBackups'
+    [ordered]@{
+        PrivacySandboxPromptEnabled = $false
+        PromotionalTabsEnabled = $false
+    } | ConvertTo-Json | Set-Content -LiteralPath $leftoverPolicyPath -Encoding UTF8
+
+    $leftoverDoctorOutput = (& $scriptPath -Doctor -Platform Linux -PolicyPath $leftoverPolicyPath -ProfileRoot $missingProfileRoot -BackupDirectory $leftoverBackupDirectory *>&1 | Out-String)
+    Assert-TextContains -Text $leftoverDoctorOutput -Expected 'Obsolete leftover policies: detected. Rerun with -Apply to remove them.' -Context 'Doctor obsolete leftover output'
+    Assert-TextContains -Text $leftoverDoctorOutput -Expected 'PrivacySandboxPromptEnabled' -Context 'Doctor obsolete leftover output'
+    Assert-TextContains -Text $leftoverDoctorOutput -Expected 'PromotionalTabsEnabled' -Context 'Doctor obsolete leftover output'
+
+    $leftoverDryRunOutput = (& $scriptPath -Platform Linux -PolicyPath $leftoverPolicyPath -OnlyFeature Rewards -BackupDirectory $leftoverBackupDirectory *>&1 | Out-String)
+    Assert-TextContains -Text $leftoverDryRunOutput -Expected 'Would remove PrivacySandboxPromptEnabled because Brave marks it obsolete.' -Context 'obsolete leftover dry-run output'
+    Assert-TextContains -Text $leftoverDryRunOutput -Expected 'Would remove PromotionalTabsEnabled because Brave marks it obsolete.' -Context 'obsolete leftover dry-run output'
+    Assert-TextContains -Text $leftoverDryRunOutput -Expected '2 obsolete leftover(s) to remove' -Context 'obsolete leftover dry-run output'
+    $leftoverDryRunJson = Get-Content -LiteralPath $leftoverPolicyPath -Raw | ConvertFrom-Json
+    if ($null -eq $leftoverDryRunJson.PSObject.Properties['PrivacySandboxPromptEnabled'] -or $null -eq $leftoverDryRunJson.PSObject.Properties['PromotionalTabsEnabled']) {
+        throw 'Dry-run removed leftover obsolete policies.'
+    }
+
+    $leftoverApplyOutput = (& $scriptPath -Platform Linux -PolicyPath $leftoverPolicyPath -OnlyFeature Rewards -Apply -BackupDirectory $leftoverBackupDirectory *>&1 | Out-String)
+    Assert-TextContains -Text $leftoverApplyOutput -Expected 'Removed obsolete PrivacySandboxPromptEnabled.' -Context 'obsolete leftover apply output'
+    Assert-TextContains -Text $leftoverApplyOutput -Expected 'Removed obsolete PromotionalTabsEnabled.' -Context 'obsolete leftover apply output'
+    Assert-TextContains -Text $leftoverApplyOutput -Expected 'Removed 2 obsolete leftover(s).' -Context 'obsolete leftover apply output'
+    $leftoverApplyJson = Get-Content -LiteralPath $leftoverPolicyPath -Raw | ConvertFrom-Json
+    if ($null -ne $leftoverApplyJson.PSObject.Properties['PrivacySandboxPromptEnabled']) {
+        throw 'Linux policy apply left PrivacySandboxPromptEnabled in place.'
+    }
+    if ($null -ne $leftoverApplyJson.PSObject.Properties['PromotionalTabsEnabled']) {
+        throw 'Linux policy apply left PromotionalTabsEnabled in place.'
+    }
+    if ($leftoverApplyJson.BraveRewardsDisabled -isnot [bool] -or -not $leftoverApplyJson.BraveRewardsDisabled) {
+        throw 'Linux leftover apply did not write BraveRewardsDisabled = true.'
+    }
+    $leftoverBackups = @(Get-ChildItem -LiteralPath $leftoverBackupDirectory -Filter 'BraveDebloater-*.json')
+    if ($leftoverBackups.Count -ne 1) {
+        throw "Linux leftover apply did not create exactly one backup, found $($leftoverBackups.Count)."
+    }
+    $leftoverBackup = Get-Content -LiteralPath $leftoverBackups[0].FullName -Raw | ConvertFrom-Json
+    $leftoverBackupNames = @($leftoverBackup.policies | ForEach-Object { [string]$_.name })
+    if ($leftoverBackupNames -notcontains 'PrivacySandboxPromptEnabled' -or $leftoverBackupNames -notcontains 'PromotionalTabsEnabled') {
+        throw 'Linux leftover backup did not snapshot the obsolete policies.'
+    }
+
+    $leftoverRestoreOutput = (& $scriptPath -UndoFromBackup $leftoverBackups[0].FullName -PolicyPath $leftoverPolicyPath *>&1 | Out-String)
+    Assert-TextContains -Text $leftoverRestoreOutput -Expected 'Would restore PrivacySandboxPromptEnabled' -Context 'obsolete leftover restore dry-run output'
+    Assert-TextContains -Text $leftoverRestoreOutput -Expected 'Would restore PromotionalTabsEnabled' -Context 'obsolete leftover restore dry-run output'
+
+    $oldDeprecatedBackup = Join-Path $tempRoot 'old-deprecated-backup.json'
+    [ordered]@{
+        schemaVersion = 1
+        platform = 'Linux'
+        policyKind = 'JsonFile'
+        registryPath = $leftoverPolicyPath
+        policies = @(
+            [ordered]@{
+                name = 'PrivacySandboxPromptEnabled'
+                existed = $true
+                value = 0
+                kind = 'DWord'
+            }
+        )
+        profileFiles = @()
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $oldDeprecatedBackup -Encoding UTF8
+    $oldDeprecatedRestoreOutput = (& $scriptPath -UndoFromBackup $oldDeprecatedBackup -PolicyPath $leftoverPolicyPath *>&1 | Out-String)
+    Assert-TextContains -Text $oldDeprecatedRestoreOutput -Expected 'Would restore PrivacySandboxPromptEnabled' -Context 'old deprecated backup restore dry-run output'
 
     $customLinuxBackup = Join-Path $tempRoot 'custom-linux-backup.json'
     [ordered]@{

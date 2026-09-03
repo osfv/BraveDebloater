@@ -35,7 +35,7 @@ PowerShell is the cross-platform runtime. The files it writes are native to each
 
 Brave-specific surfaces:
 
-- Rewards, Wallet, VPN, Leo AI Chat, News, Talk, Playlist, Email Aliases, IPFS, Speedreader, and Wayback prompts
+- Rewards, Wallet, VPN, Leo AI Chat, News, Talk, Playlist, Email Aliases, Speedreader, and Wayback prompts
 
 Telemetry and suggestions:
 
@@ -214,7 +214,7 @@ Use `-IncludeFeature` and `-ExcludeFeature` for repeatable commands.
 
 Use `-OnlyFeature` when you want exactly the named cleanups without starting from a preset.
 
-Feature names are shown by `-ListFeatures`. Examples include `Rewards`, `Wallet`, `VPN`, `LeoAI`, `News`, `Talk`, `EmailAliases`, `IPFS`, `Autofill`, `Translate`, and `GoogleSearchSidePanel`.
+Feature names are shown by `-ListFeatures`. Examples include `Rewards`, `Wallet`, `VPN`, `LeoAI`, `News`, `Talk`, `EmailAliases`, `Autofill`, `Translate`, and `GoogleSearchSidePanel`.
 
 When `-IncludeProfilePreferences` is combined with custom feature choices, profile preference patches are filtered to the selected features.
 
