@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Stop applying Brave's obsolete `PrivacySandboxPromptEnabled` policy, and remove leftover copies of that name plus `PromotionalTabsEnabled` and `IPFSEnabled` from the selected policy target on apply so `brave://policy` no longer flags them.
+- Dry-run and `-WhatIf` still preview selected policy writes when an existing Linux policy JSON file is unreadable or malformed; leftover obsolete cleanup is skipped with a warning until the file can be read.
 - Fixed profile `Preferences`, backup, and policy JSON being read as ANSI on Windows PowerShell 5.1, which mangled non-ASCII text such as profile names on write. All JSON is now read as UTF-8 and written without a byte order mark.
 - Fixed the Brave process check missing the macOS `Brave Browser` process name, which allowed profile preference cleanup while Brave was open.
 - Restores that include profile `Preferences` files now stop before writing anything if Brave is running, and Windows registry or macOS backups refuse to apply on another platform.

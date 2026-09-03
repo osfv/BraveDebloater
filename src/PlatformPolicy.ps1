@@ -251,10 +251,18 @@ function Get-PolicyValue {
 
     if ($Target.Kind -eq 'JsonFile') {
         if (Test-Path -LiteralPath $Target.Path) {
-            $json = Get-ManagedPolicyJson -Path $Target.Path
-            $property = $json.PSObject.Properties[$Name]
-            if ($null -ne $property) {
-                return [pscustomobject]@{ Exists = $true; Value = $property.Value; Kind = 'DWord'; ReadError = $false }
+            try {
+                $json = Get-ManagedPolicyJson -Path $Target.Path
+                $property = $json.PSObject.Properties[$Name]
+                if ($null -ne $property) {
+                    return [pscustomobject]@{ Exists = $true; Value = $property.Value; Kind = 'DWord'; ReadError = $false }
+                }
+            }
+            catch {
+                # The whole managed policy file is unreadable or not a JSON object. Treat it like an
+                # unreadable registry value so leftover scans and backups skip it instead of aborting
+                # a dry-run or WhatIf preview.
+                return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true }
             }
         }
         return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
@@ -295,15 +303,32 @@ function Get-PresentPolicyNames {
     )
 
     $present = New-Object System.Collections.Generic.List[string]
+    $hadReadError = $false
+    $readErrorMessage = ''
     foreach ($policyName in @($PolicyNames)) {
         if ([string]::IsNullOrWhiteSpace([string]$policyName)) {
             continue
         }
 
-        $value = Get-PolicyValue -Target $Target -Name $policyName
-        if ($value.Exists -and -not $value.ReadError) {
-            [void]$present.Add($policyName)
+        try {
+            $value = Get-PolicyValue -Target $Target -Name $policyName
+            if ($value.ReadError) {
+                $hadReadError = $true
+                continue
+            }
+            if ($value.Exists) {
+                [void]$present.Add($policyName)
+            }
         }
+        catch {
+            $hadReadError = $true
+            $readErrorMessage = $_.Exception.Message
+        }
+    }
+
+    if ($hadReadError) {
+        $detail = if ([string]::IsNullOrWhiteSpace($readErrorMessage)) { '' } else { ": $readErrorMessage" }
+        Write-Warning "Could not read existing policies at '$($Target.Path)', so leftover obsolete policies were not checked$detail."
     }
 
     return $present.ToArray()

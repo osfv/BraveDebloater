@@ -279,8 +279,16 @@ if ($IncludeProfilePreferences -and $applyChanges -and $NoBackup) {
 
 $obsoletePolicyNames = New-Object System.Collections.Generic.List[string]
 if ($policyTarget.Kind -ne 'MobileMDM') {
-    foreach ($name in @(Get-PresentPolicyNames -Target $policyTarget -PolicyNames @(Get-DeprecatedPolicyNames -Manifest $manifest))) {
-        [void]$obsoletePolicyNames.Add($name)
+    try {
+        foreach ($name in @(Get-PresentPolicyNames -Target $policyTarget -PolicyNames @(Get-DeprecatedPolicyNames -Manifest $manifest))) {
+            [void]$obsoletePolicyNames.Add($name)
+        }
+    }
+    catch {
+        if ($applyChanges) {
+            throw
+        }
+        Write-Warning "Could not read existing policies at '$($policyTarget.Path)', so leftover obsolete policies were not checked: $($_.Exception.Message)"
     }
 }
 

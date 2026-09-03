@@ -477,6 +477,26 @@ try {
     $oldDeprecatedRestoreOutput = (& $scriptPath -UndoFromBackup $oldDeprecatedBackup -PolicyPath $leftoverPolicyPath *>&1 | Out-String)
     Assert-TextContains -Text $oldDeprecatedRestoreOutput -Expected 'Would restore PrivacySandboxPromptEnabled' -Context 'old deprecated backup restore dry-run output'
 
+    $malformedPolicyPath = Join-Path $tempRoot 'malformed-linux-policy.json'
+    $malformedPolicyContent = '{ this is not valid json'
+    Set-Content -LiteralPath $malformedPolicyPath -Value $malformedPolicyContent -Encoding UTF8 -NoNewline
+    $malformedDryRunOutput = (& $scriptPath -Platform Linux -PolicyPath $malformedPolicyPath -OnlyFeature Rewards *>&1 | Out-String)
+    Assert-TextContains -Text $malformedDryRunOutput -Expected 'Would set BraveRewardsDisabled' -Context 'malformed Linux policy dry-run output'
+    Assert-TextContains -Text $malformedDryRunOutput -Expected 'leftover obsolete policies were not checked' -Context 'malformed Linux policy dry-run output'
+    Assert-TextContains -Text $malformedDryRunOutput -Expected 'Dry-run complete.' -Context 'malformed Linux policy dry-run output'
+    Assert-TextDoesNotContain -Text $malformedDryRunOutput -Unexpected 'Would remove PrivacySandboxPromptEnabled' -Context 'malformed Linux policy dry-run output'
+    $malformedAfterDryRun = Get-Content -LiteralPath $malformedPolicyPath -Raw
+    if ($malformedAfterDryRun -ne $malformedPolicyContent) {
+        throw 'Dry-run modified a malformed Linux policy JSON file.'
+    }
+    $malformedWhatIfOutput = (& $scriptPath -Platform Linux -PolicyPath $malformedPolicyPath -OnlyFeature Rewards -Apply -WhatIf *>&1 | Out-String)
+    Assert-TextContains -Text $malformedWhatIfOutput -Expected 'Would set BraveRewardsDisabled' -Context 'malformed Linux policy WhatIf output'
+    Assert-TextContains -Text $malformedWhatIfOutput -Expected 'WhatIf complete.' -Context 'malformed Linux policy WhatIf output'
+    $malformedAfterWhatIf = Get-Content -LiteralPath $malformedPolicyPath -Raw
+    if ($malformedAfterWhatIf -ne $malformedPolicyContent) {
+        throw 'WhatIf modified a malformed Linux policy JSON file.'
+    }
+
     $customLinuxBackup = Join-Path $tempRoot 'custom-linux-backup.json'
     [ordered]@{
         schemaVersion = 1
