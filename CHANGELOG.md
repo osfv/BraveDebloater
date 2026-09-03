@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed profile `Preferences`, backup, and policy JSON being read as ANSI on Windows PowerShell 5.1, which mangled non-ASCII text such as profile names on write. All JSON is now read as UTF-8 and written without a byte order mark.
+- Fixed the Brave process check missing the macOS `Brave Browser` process name, which allowed profile preference cleanup while Brave was open.
+- Restores that include profile `Preferences` files now stop before writing anything if Brave is running, and Windows registry or macOS backups refuse to apply on another platform.
+- Previews, `-List`, and `-ExportPolicyPath` no longer require an elevated session for `-Scope LocalMachine`, `-UserSid`, or the Linux default policy path. Dry-runs print a note when `-Apply` will need elevation, and the Linux default path now fails early with a clear root message.
+- `-ExportPolicyPath` writes a `.reg` file for Windows registry targets instead of an Apple plist.
+- `-Platform Windows` on another OS no longer fails when `LOCALAPPDATA` is unset, `-PolicyPath` warns when the selected target ignores it, and empty managed policy files are treated as having no policies.
+- Closing summaries now show how many policy values were planned or applied.
 - Skip unreadable or invalid profile `Preferences` files with a warning instead of failing the whole profile preference cleanup run.
 - Added `-Doctor` for a read-only Brave policy, feature, backup, profile, and safety diagnostic report.
 - Added Greptile review configuration for safety-focused pull request feedback.

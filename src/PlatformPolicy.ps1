@@ -40,10 +40,21 @@ function Get-DefaultProfileRoot {
     }
     $browserDirectory = "Brave-Browser$suffix"
 
+    # A forced -Platform on another OS (for example exporting Windows policies from Linux) has no
+    # matching base directory. Return '' so profile cleanup is skipped instead of failing on Join-Path.
     switch ($PlatformName) {
-        'Windows' { return (Join-Path $env:LOCALAPPDATA "BraveSoftware\$browserDirectory\User Data") }
-        'macOS' { return (Join-Path $HOME "Library/Application Support/BraveSoftware/$browserDirectory") }
-        'Linux' { return (Join-Path $HOME ".config/BraveSoftware/$browserDirectory") }
+        'Windows' {
+            if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { return '' }
+            return (Join-Path $env:LOCALAPPDATA "BraveSoftware\$browserDirectory\User Data")
+        }
+        'macOS' {
+            if ([string]::IsNullOrWhiteSpace($HOME)) { return '' }
+            return (Join-Path $HOME "Library/Application Support/BraveSoftware/$browserDirectory")
+        }
+        'Linux' {
+            if ([string]::IsNullOrWhiteSpace($HOME)) { return '' }
+            return (Join-Path $HOME ".config/BraveSoftware/$browserDirectory")
+        }
         default { return '' }
     }
 }
@@ -135,6 +146,9 @@ function Get-PolicyTarget {
         }
         'Linux' {
             $path = if ([string]::IsNullOrWhiteSpace($OverridePath)) { '/etc/brave/policies/managed/BraveDebloater.json' } else { $OverridePath }
+            if ($Apply -and -not $ReadOnly -and [string]::IsNullOrWhiteSpace($OverridePath) -and -not (Test-IsAdministrator)) {
+                throw "Linux managed policies are written to '$path' and need root. Rerun the command with sudo, or use -PolicyPath to write a test file somewhere you can access."
+            }
             return [pscustomobject]@{ Platform = $PlatformName; Kind = 'JsonFile'; Path = $path }
         }
         'macOS' {
@@ -151,6 +165,62 @@ function Get-PolicyTarget {
             return [pscustomobject]@{ Platform = $PlatformName; Kind = 'MobileMDM'; Path = 'MDM profile' }
         }
     }
+}
+
+function Get-ManagedPolicyJson {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # An empty managed policy file is treated as "no policies" instead of a parse failure so the
+    # first apply on a machine with a placeholder file still succeeds.
+    $raw = Get-Utf8FileContent -Path $Path
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return [pscustomobject]@{}
+    }
+
+    $json = $raw | ConvertFrom-Json
+    if ($json -isnot [System.Management.Automation.PSCustomObject]) {
+        throw "Managed policy file $Path does not contain a JSON object. Fix or remove the file, then rerun the command."
+    }
+
+    return $json
+}
+
+function Get-PolicyTargetElevationHint {
+    param(
+        [Parameter(Mandatory = $true)]$Target,
+        [string]$ScopeName,
+        [string]$UserSid,
+        [string]$OverridePath
+    )
+
+    # Called for previews only. Says up front whether the matching -Apply run will need elevation,
+    # so users are not surprised after reviewing a dry-run in an unelevated session.
+    if (Test-IsAdministrator) {
+        return ''
+    }
+
+    switch ($Target.Kind) {
+        'Registry' {
+            if (-not [string]::IsNullOrWhiteSpace($UserSid)) {
+                return 'Applying for -UserSid needs an elevated PowerShell session. Reopen PowerShell as administrator before adding -Apply.'
+            }
+            if ($ScopeName -eq 'LocalMachine') {
+                return 'Applying LocalMachine scope needs an elevated PowerShell session. Reopen PowerShell as administrator before adding -Apply.'
+            }
+        }
+        'JsonFile' {
+            if ([string]::IsNullOrWhiteSpace($OverridePath)) {
+                return "Applying to $($Target.Path) needs root. Rerun with sudo before adding -Apply."
+            }
+        }
+        'MacOSPlist' {
+            if ([string]::IsNullOrWhiteSpace($OverridePath)) {
+                return "Applying to $($Target.Path) needs root. Rerun with sudo before adding -Apply."
+            }
+        }
+    }
+
+    return ''
 }
 
 function Get-PolicyValue {
@@ -181,7 +251,7 @@ function Get-PolicyValue {
 
     if ($Target.Kind -eq 'JsonFile') {
         if (Test-Path -LiteralPath $Target.Path) {
-            $json = Get-Content -LiteralPath $Target.Path -Raw | ConvertFrom-Json
+            $json = Get-ManagedPolicyJson -Path $Target.Path
             $property = $json.PSObject.Properties[$Name]
             if ($null -ne $property) {
                 return [pscustomobject]@{ Exists = $true; Value = $property.Value; Kind = 'DWord'; ReadError = $false }
@@ -245,7 +315,7 @@ function Set-PolicyValue {
     if ($Target.Kind -eq 'JsonFile') {
         $json = [pscustomobject]@{}
         if (Test-Path -LiteralPath $Target.Path) {
-            $json = Get-Content -LiteralPath $Target.Path -Raw | ConvertFrom-Json
+            $json = Get-ManagedPolicyJson -Path $Target.Path
         }
         if ($null -eq $json.PSObject.Properties[$Name]) {
             $json | Add-Member -NotePropertyName $Name -NotePropertyValue $value
@@ -290,7 +360,7 @@ function Remove-PolicyValue {
     }
     if ($Target.Kind -eq 'JsonFile') {
         if (Test-Path -LiteralPath $Target.Path) {
-            $json = Get-Content -LiteralPath $Target.Path -Raw | ConvertFrom-Json
+            $json = Get-ManagedPolicyJson -Path $Target.Path
             $json.PSObject.Properties.Remove($Name)
             Set-JsonFileContent -Path $Target.Path -Object $json
         }
@@ -364,7 +434,7 @@ function Get-PolicyReport {
 
     try {
         if ($Target.Kind -eq 'JsonFile' -and $keyExists) {
-            $json = Get-Content -LiteralPath $Target.Path -Raw | ConvertFrom-Json
+            $json = Get-ManagedPolicyJson -Path $Target.Path
             foreach ($property in $json.PSObject.Properties) {
                 [void]$entries.Add([pscustomobject]@{ Name = $property.Name; Value = $property.Value; Kind = 'DWord' })
             }
@@ -580,6 +650,67 @@ function ConvertTo-PlistDocument {
     return ($lines.ToArray() -join "`n")
 }
 
+function ConvertTo-RegFileDocument {
+    param(
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [Parameter(Mandatory = $true)]$Payload
+    )
+
+    $keyPath = $RegistryPath -replace '^Registry::', ''
+    $lines = New-Object System.Collections.Generic.List[string]
+    [void]$lines.Add('Windows Registry Editor Version 5.00')
+    [void]$lines.Add('')
+    [void]$lines.Add("[$keyPath]")
+
+    foreach ($entry in $Payload.GetEnumerator()) {
+        $value = $entry.Value
+        if ($value -is [bool]) {
+            $value = if ($value) { 1 } else { 0 }
+        }
+
+        if ($value -is [int] -or $value -is [long]) {
+            [void]$lines.Add(('"{0}"=dword:{1:x8}' -f $entry.Key, [uint32]$value))
+        }
+        else {
+            $escaped = ([string]$value) -replace '\\', '\\\\' -replace '"', '\"'
+            [void]$lines.Add(('"{0}"="{1}"' -f $entry.Key, $escaped))
+        }
+    }
+
+    [void]$lines.Add('')
+    # regedit expects "Version 5.00" files to be UTF-16LE with CRLF line endings.
+    return (($lines.ToArray() -join "`r`n") + "`r`n")
+}
+
+function Get-PolicyExportFormat {
+    param(
+        [Parameter(Mandatory = $true)]$Target,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    $extension = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+    if ($extension -eq '.reg') {
+        if ($Target.Kind -ne 'Registry') {
+            throw "A .reg export needs a Windows registry target. Add -Platform Windows, or export a .json, .plist, or .mobileconfig file for $($Target.Platform)."
+        }
+        return 'Reg'
+    }
+    if ($extension -eq '.json' -or $Target.Platform -eq 'Linux' -or $Target.Platform -eq 'Android') {
+        return 'Json'
+    }
+    if ($extension -eq '.mobileconfig' -or $Target.Platform -eq 'iOS') {
+        return 'MobileConfig'
+    }
+    if ($extension -eq '.plist' -or $Target.Platform -eq 'macOS') {
+        return 'Plist'
+    }
+    if ($Target.Kind -eq 'Registry') {
+        return 'Reg'
+    }
+
+    return 'Plist'
+}
+
 function Export-PolicyPayload {
     param(
         [Parameter(Mandatory = $true)]$Target,
@@ -587,19 +718,24 @@ function Export-PolicyPayload {
         [Parameter(Mandatory = $true)][string]$Path
     )
 
-    $directory = Split-Path -Parent $Path
-    if (-not [string]::IsNullOrWhiteSpace($directory) -and -not (Test-Path -LiteralPath $directory)) {
-        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    $format = Get-PolicyExportFormat -Target $Target -Path $Path
+    switch ($format) {
+        'Json' {
+            Set-JsonFileContent -Path $Path -Object $Payload
+        }
+        'Reg' {
+            $document = ConvertTo-RegFileDocument -RegistryPath $Target.Path -Payload $Payload
+            Set-TextFileContent -Path $Path -Content $document -Encoding ([System.Text.Encoding]::Unicode)
+        }
+        'MobileConfig' {
+            Set-TextFileContent -Path $Path -Content (ConvertTo-PlistDocument -Payload $Payload -MobileConfig)
+        }
+        default {
+            Set-TextFileContent -Path $Path -Content (ConvertTo-PlistDocument -Payload $Payload)
+        }
     }
 
-    if ($Target.Platform -eq 'Linux' -or $Target.Platform -eq 'Android' -or $Path.EndsWith('.json', [StringComparison]::OrdinalIgnoreCase)) {
-        Set-JsonFileContent -Path $Path -Object $Payload
-        return
-    }
-
-    $mobileConfig = $Target.Platform -eq 'iOS' -or $Path.EndsWith('.mobileconfig', [StringComparison]::OrdinalIgnoreCase)
-    $document = ConvertTo-PlistDocument -Payload $Payload -MobileConfig:$mobileConfig
-    Set-TextFileContent -Path $Path -Content $document
+    return $format
 }
 
 function Set-BravePolicy {

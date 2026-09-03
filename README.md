@@ -39,7 +39,7 @@ Brave-specific surfaces:
 
 Telemetry and suggestions:
 
-- Brave P3A, stats ping, Web Discovery, Chromium metrics, URL-keyed collection, Privacy Sandbox prompts, remote search suggestions, network prediction, and remote spellcheck
+- Brave P3A, stats ping, Web Discovery, Chromium metrics, URL-keyed collection, remote search suggestions, network prediction, and remote spellcheck
 
 Extra UI in the `Extreme` preset:
 
@@ -171,12 +171,15 @@ Examples:
 ```powershell
 .\Invoke-BraveDebloat.ps1 -Platform macOS -Preset Extreme -Apply
 .\Invoke-BraveDebloat.ps1 -Platform Linux -Preset Extreme -Apply
+.\Invoke-BraveDebloat.ps1 -Platform Windows -Preset Extreme -ExportPolicyPath .\brave-policy.reg
 .\Invoke-BraveDebloat.ps1 -Platform Linux -Preset Extreme -ExportPolicyPath .\brave-policy.json
 .\Invoke-BraveDebloat.ps1 -Platform iOS -OnlyFeature Rewards -ExportPolicyPath .\brave-ios.mobileconfig
 .\Invoke-BraveDebloat.ps1 -Platform Android -OnlyFeature Rewards -ExportPolicyPath .\brave-android-mdm.json
 ```
 
-Use `-PolicyPath` when testing, or when your managed Linux/macOS policy file lives somewhere custom.
+`-ExportPolicyPath` picks the format from the platform and file extension: `.reg` for Windows registry policies, `.json` for Linux and Android, `.plist` for macOS, and `.mobileconfig` for iOS/iPadOS. Exports and previews never write to the policy target, so they do not need an elevated session.
+
+Use `-PolicyPath` when testing, or when your managed Linux or macOS machine-wide policy file lives somewhere custom. It has no effect on Windows registry or macOS `defaults` targets, and the script says so.
 
 ## Brave Channels
 
@@ -233,7 +236,9 @@ Some cosmetic cleanup lives in each Brave profile instead. Close Brave first, th
 .\Invoke-BraveDebloat.ps1 -Preset Extreme -IncludeProfilePreferences -Apply
 ```
 
-If Brave is running, profile preference cleanup is skipped. This avoids writing files that Brave may overwrite.
+If Brave is running, profile preference cleanup is skipped. This avoids writing files that Brave may overwrite. Restores that include profile files stop for the same reason until Brave is closed.
+
+Preferences files are read and written as UTF-8 without a byte order mark on every PowerShell version, so profile names and site entries with non-ASCII characters are preserved.
 
 ## Restore
 
@@ -257,11 +262,13 @@ Restore validates the backup before it writes. Registry restores are limited to 
 
 Current-user policy is the default and does not require administrator/root rights.
 
-For machine-wide policy, run PowerShell as administrator/root:
+Previewing machine-wide policy works from a normal session and prints a note when the matching `-Apply` run will need elevation. To apply machine-wide policy, run PowerShell as administrator/root:
 
 ```powershell
 .\Invoke-BraveDebloat.ps1 -Preset Extreme -Scope LocalMachine -Apply
 ```
+
+On Linux the default target `/etc/brave/policies/managed/BraveDebloater.json` also needs root, so run the apply command with `sudo pwsh`.
 
 ## Sources
 

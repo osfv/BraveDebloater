@@ -98,8 +98,12 @@ function Assert-BackupProfileFile {
     param(
         [Parameter(Mandatory = $true)]$ProfileFile,
         [Parameter(Mandatory = $true)][string]$BackupPath,
-        [Parameter(Mandatory = $true)][string]$ProfileRoot
+        [string]$ProfileRoot
     )
+
+    if ([string]::IsNullOrWhiteSpace($ProfileRoot)) {
+        throw 'This backup includes profile Preferences files, but no Brave profile root is known for this platform. Pass -ProfileRoot with the Brave "User Data" folder those files came from, then rerun the restore command.'
+    }
 
     $source = [string](Get-RequiredPropertyValue -Object $ProfileFile -Name 'backupPath' -Context 'Backup profile file')
     $target = [string](Get-RequiredPropertyValue -Object $ProfileFile -Name 'originalPath' -Context 'Backup profile file')
@@ -125,7 +129,7 @@ function Assert-BackupObject {
         [Parameter(Mandatory = $true)]$Backup,
         [Parameter(Mandatory = $true)]$Manifest,
         [Parameter(Mandatory = $true)][string]$BackupPath,
-        [Parameter(Mandatory = $true)][string]$ProfileRoot,
+        [string]$ProfileRoot,
         [string]$AllowedPolicyPath,
         [string]$AllowedUserPolicyPath,
         [switch]$DoApply
@@ -289,7 +293,7 @@ function Update-BackupProfileFiles {
         return
     }
 
-    $backup = Get-Content -LiteralPath $BackupPath -Raw | ConvertFrom-Json
+    $backup = Get-JsonFileContent -Path $BackupPath
     $backup.profileFiles = @($ProfileFiles)
     Set-JsonFileContent -Path $BackupPath -Object $backup -Depth 20
 }
@@ -298,7 +302,7 @@ function Restore-RegistryBackup {
     param(
         [string]$BackupPath,
         [Parameter(Mandatory = $true)]$Manifest,
-        [Parameter(Mandatory = $true)][string]$ProfileRoot,
+        [string]$ProfileRoot,
         [string]$AllowedPolicyPath,
         [string]$AllowedUserPolicyPath,
         [switch]$DoApply
@@ -308,12 +312,33 @@ function Restore-RegistryBackup {
         throw "Backup file not found: $BackupPath. Check the path, then rerun the restore command."
     }
 
-    $backup = Get-Content -LiteralPath $BackupPath -Raw | ConvertFrom-Json
+    $backup = Get-JsonFileContent -Path $BackupPath
     Assert-BackupObject -Backup $backup -Manifest $Manifest -BackupPath $BackupPath -ProfileRoot $ProfileRoot -AllowedPolicyPath $AllowedPolicyPath -AllowedUserPolicyPath $AllowedUserPolicyPath -DoApply:$DoApply
     $policyTarget = [pscustomobject]@{
         Platform = if ($backup.PSObject.Properties['platform']) { [string]$backup.platform } else { 'Windows' }
         Kind = if ($backup.PSObject.Properties['policyKind']) { [string]$backup.policyKind } else { 'Registry' }
         Path = [string]$backup.registryPath
+    }
+
+    $profileFiles = @()
+    if ($null -ne $backup.PSObject.Properties['profileFiles']) {
+        $profileFiles = @($backup.profileFiles)
+    }
+
+    if ($DoApply) {
+        $currentPlatform = Resolve-PlatformName -Name 'Auto'
+        if ($policyTarget.Kind -eq 'Registry' -and $currentPlatform -ne 'Windows') {
+            throw "This backup restores Windows registry policies and cannot be applied on $currentPlatform. Run the restore on the Windows machine it was created on."
+        }
+        if ($policyTarget.Kind -in @('MacOSDefaults', 'MacOSPlist') -and $currentPlatform -ne 'macOS') {
+            throw "This backup restores macOS policies and cannot be applied on $currentPlatform. Run the restore on the Mac it was created on."
+        }
+
+        # Brave rewrites Preferences on exit, so restoring profile files while it runs would be lost
+        # or could corrupt the profile. Stop before touching anything so the restore is all-or-nothing.
+        if ($profileFiles.Count -gt 0 -and (Test-BraveRunning)) {
+            throw 'Brave is running, so this backup was not restored. It includes profile Preferences files. Close Brave, then rerun the restore command.'
+        }
     }
 
     foreach ($policy in @($backup.policies)) {
@@ -347,7 +372,7 @@ function Restore-RegistryBackup {
         }
     }
 
-    foreach ($profileFile in @($backup.profileFiles)) {
+    foreach ($profileFile in $profileFiles) {
         $source = [string]$profileFile.backupPath
         $target = [string]$profileFile.originalPath
 
