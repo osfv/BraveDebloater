@@ -87,7 +87,8 @@ function Test-AllowedPolicyPathMatches {
 function Assert-BackupPolicyKind {
     param(
         [Parameter(Mandatory = $true)]$Backup,
-        [Parameter(Mandatory = $true)][string]$RegistryPath
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [string]$AllowedPolicyPath
     )
 
     $kind = 'Registry'
@@ -96,11 +97,14 @@ function Assert-BackupPolicyKind {
     }
 
     # The kind decides which writer runs, so it must agree with the recorded path. Otherwise a
-    # tampered backup could turn a registry key name into a file written under the working directory.
+    # tampered backup could turn a registry key name into a file written under the working directory,
+    # or write JSON into the macOS managed plist. File kinds only accept their own platform's default
+    # path or the -PolicyPath the user passed for this restore.
+    $overrideMatches = Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath $AllowedPolicyPath
     $consistent = switch ($kind) {
         'Registry' { $RegistryPath -like 'Registry::HKEY_*' }
-        'JsonFile' { Test-ManagedPolicyPath -Path $RegistryPath }
-        'MacOSPlist' { Test-ManagedPolicyPath -Path $RegistryPath }
+        'JsonFile' { (Test-ManagedPolicyPath -Path $RegistryPath) -and ($RegistryPath -eq '/etc/brave/policies/managed/BraveDebloater.json' -or $overrideMatches) }
+        'MacOSPlist' { (Test-ManagedPolicyPath -Path $RegistryPath) -and ($RegistryPath -eq '/Library/Managed Preferences/com.brave.Browser.plist' -or $overrideMatches) }
         'MacOSDefaults' { $RegistryPath -eq 'com.brave.Browser' }
         default { throw "Backup has unsupported policy kind '$kind'. Restore stopped before writing anything." }
     }
@@ -201,7 +205,7 @@ function Assert-BackupObject {
 
     $registryPath = [string](Get-RequiredPropertyValue -Object $Backup -Name 'registryPath' -Context 'Backup')
     Assert-BackupRegistryPath -RegistryPath $registryPath -AllowedPolicyPath $AllowedPolicyPath -AllowedUserPolicyPath $AllowedUserPolicyPath -DoApply:$DoApply
-    Assert-BackupPolicyKind -Backup $Backup -RegistryPath $registryPath
+    Assert-BackupPolicyKind -Backup $Backup -RegistryPath $registryPath -AllowedPolicyPath $AllowedPolicyPath
 
     $policyDefinitions = Get-ManifestMap -Object $Manifest.policies
     Assert-BackupPolicyList -Backup $Backup -PolicyDefinitions $policyDefinitions -DeprecatedPolicyNames @(Get-DeprecatedPolicyNames -Manifest $Manifest)
@@ -282,7 +286,7 @@ function Invoke-BackupRetention {
 
     $profileBackupDirectory = Join-Path (Get-FullFileSystemPath -Path $Directory) 'profile-files'
     foreach ($file in $remove) {
-        $profileBackupFiles = @(Get-BackupProfileFilePaths -BackupPath $file.FullName -ProfileBackupDirectory $profileBackupDirectory)
+        $profileBackupFiles = @(Get-BackupProfileFilePaths -BackupPath $file.FullName -ProfileBackupDirectory (Get-ProfileBackupDirectory -BackupPath $file.FullName))
         if ($DoApply) {
             try {
                 Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop
@@ -321,7 +325,9 @@ function Get-BackupProfileFilePaths {
         [Parameter(Mandatory = $true)][string]$ProfileBackupDirectory
     )
 
-    # Only files that live beside the backup under profile-files/ are ever removed with it.
+    # Only files inside this backup's own profile-files/<backup-name>/ folder are ever removed with
+    # it. Copies referenced from anywhere else (another backup's folder, or the shared root used by
+    # backups from before 0.4.0) may still belong to a retained backup and are left alone.
     $paths = New-Object System.Collections.Generic.List[string]
     try {
         $backup = Get-JsonFileContent -Path $BackupPath
