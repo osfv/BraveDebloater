@@ -72,6 +72,23 @@ function Get-AdmxDecimalValues {
     return $values.ToArray()
 }
 
+function Get-AdmxDecimalRange {
+    param([Parameter(Mandatory = $true)]$Element)
+
+    # ADMX decimal elements default to 0..9999 when minValue/maxValue are omitted.
+    $minimum = [long]0
+    $maximum = [long]9999
+    $minimumText = [string]$Element.GetAttribute('minValue')
+    $maximumText = [string]$Element.GetAttribute('maxValue')
+    if ($minimumText -ne '' -and -not [long]::TryParse($minimumText, [ref]$minimum)) {
+        throw "ADMX decimal element '$($Element.GetAttribute('id'))' has an unreadable minValue '$minimumText'."
+    }
+    if ($maximumText -ne '' -and -not [long]::TryParse($maximumText, [ref]$maximum)) {
+        throw "ADMX decimal element '$($Element.GetAttribute('id'))' has an unreadable maxValue '$maximumText'."
+    }
+    return [pscustomobject]@{ Minimum = $minimum; Maximum = $maximum }
+}
+
 function Assert-AdmxValueType {
     param(
         [Parameter(Mandatory = $true)][string]$PolicyName,
@@ -118,6 +135,12 @@ function Assert-AdmxValueType {
     if ($decimalElements.Count -gt 0) {
         if ($value -eq 0 -or $value -eq 1) {
             throw "Manifest policy '$PolicyName' uses value $value for an integer policy. Managed JSON and plist writers would emit a boolean, which Brave rejects for integer policies."
+        }
+        foreach ($decimalElement in $decimalElements) {
+            $range = Get-AdmxDecimalRange -Element $decimalElement
+            if ($value -lt $range.Minimum -or $value -gt $range.Maximum) {
+                throw "Manifest policy '$PolicyName' has value $value outside the range $($range.Minimum)-$($range.Maximum) defined in the official Brave ADMX template."
+            }
         }
         return
     }
