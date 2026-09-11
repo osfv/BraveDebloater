@@ -76,15 +76,7 @@ jobs:
 
       - name: Smoke test the launcher next to the script
         shell: pwsh
-        run: |
-          Copy-Item launcher/BraveDebloat.exe ./BraveDebloat.exe
-          $output = (./BraveDebloat.exe -Version 2>&1 | Out-String -Width 4096)
-          if ($LASTEXITCODE -ne 0) { throw "BraveDebloat.exe -Version exited with $LASTEXITCODE. Output: $output" }
-          $version = '${{ github.ref_name }}'.TrimStart('v')
-          if (-not $output.Contains("BraveDebloater $version")) { throw "BraveDebloat.exe -Version did not report BraveDebloater $version. Output: $output" }
-          $listOutput = (./BraveDebloat.exe -Preset Extreme -ExcludeFeature News,LeoAI -List 2>&1 | Out-String -Width 4096)
-          if ($LASTEXITCODE -ne 0 -or $listOutput.Contains('BraveNewsDisabled')) { throw "Comma-separated -ExcludeFeature did not pass through the launcher. Output: $listOutput" }
-          Remove-Item ./BraveDebloat.exe
+        run: ./scripts/Test-Launcher.ps1 -LauncherPath launcher/BraveDebloat.exe -ExpectedVersion ('${{ github.ref_name }}'.TrimStart('v'))
 
       - name: Upload launcher
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
