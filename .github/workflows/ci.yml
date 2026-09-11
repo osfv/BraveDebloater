@@ -46,7 +46,7 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          $results = foreach ($path in @('./Invoke-BraveDebloat.ps1', './scripts', './src')) {
+          $results = foreach ($path in @('./Invoke-BraveDebloat.ps1', './install.ps1', './scripts', './src')) {
             Invoke-ScriptAnalyzer -Path $path -Recurse -Severity Error
           }
           if ($results) {
@@ -57,6 +57,13 @@ jobs:
       - name: Dry-run extreme preset
         shell: pwsh
         run: ./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields
+
+      - name: Build and smoke test the BraveDebloat.exe launcher
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/Build-Launcher.ps1 -Version 0.0.0 -OutputPath launcher/BraveDebloat.exe
+          ./scripts/Test-Launcher.ps1 -LauncherPath launcher/BraveDebloat.exe
 
   source-validation:
     runs-on: ubuntu-latest

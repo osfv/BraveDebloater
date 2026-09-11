@@ -61,14 +61,41 @@ jobs:
           ./scripts/Test-Behavior.ps1
           ./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields
 
+  # BraveDebloat.exe is compiled from packaging/launcher/BraveDebloat.cs with the C# compiler that
+  # ships in .NET Framework, so it only builds on Windows. The Windows zip and winget need it.
+  launcher:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Build BraveDebloat.exe
+        shell: pwsh
+        run: ./scripts/Build-Launcher.ps1 -Version ('${{ github.ref_name }}'.TrimStart('v')) -OutputPath launcher/BraveDebloat.exe
+
+      - name: Smoke test the launcher next to the script
+        shell: pwsh
+        run: ./scripts/Test-Launcher.ps1 -LauncherPath launcher/BraveDebloat.exe -ExpectedVersion ('${{ github.ref_name }}'.TrimStart('v'))
+
+      - name: Upload launcher
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: launcher
+          path: launcher/BraveDebloat.exe
+          if-no-files-found: error
+
   publish:
     needs:
       - validate
       - windows-powershell
+      - launcher
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
@@ -76,6 +103,7 @@ jobs:
           fetch-depth: 0
 
       - name: Check the tag matches the tool version and changelog
+        id: version
         shell: pwsh
         run: |
           $version = '${{ github.ref_name }}'.TrimStart('v')
@@ -86,15 +114,48 @@ jobs:
           if (-not (Select-String -Path ./CHANGELOG.md -Pattern "^## $([regex]::Escape($version)) - " -Quiet)) {
             throw "CHANGELOG.md has no '## $version - <date>' section. Add the release notes, then move the tag."
           }
+          "version=$version" | Add-Content -Path $env:GITHUB_OUTPUT
 
-      - name: Build release archive and checksums
+      - name: Download launcher
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: launcher
+          path: launcher
+
+      - name: Build release archives and checksums
         shell: pwsh
         run: |
           $name = "BraveDebloater-${env:GITHUB_REF_NAME}"
           git archive --format=zip --prefix="$name/" -o "$name.zip" $env:GITHUB_REF_NAME
           if ($LASTEXITCODE -ne 0) { throw 'git archive failed.' }
-          ./scripts/New-ReleaseChecksums.ps1 -Path "$name.zip" -OutputPath SHA256SUMS.txt
+
+          # The Windows zip holds the same tagged tree plus BraveDebloat.exe, flattened to the zip root
+          # because winget's ArchiveBinariesDependOnPath adds the extraction folder itself to PATH.
+          # .NET resolves relative paths against the process directory, so pass full paths.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $here = (Get-Location).ProviderPath
+          $stage = Join-Path ([System.IO.Path]::GetTempPath()) 'BraveDebloater-windows'
+          [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $here "$name.zip"), $stage)
+          $tree = Join-Path $stage $name
+          if (-not (Test-Path (Join-Path $tree 'Invoke-BraveDebloat.ps1'))) { throw "Extracted archive is missing $name/Invoke-BraveDebloat.ps1." }
+          Copy-Item launcher/BraveDebloat.exe (Join-Path $tree 'BraveDebloat.exe')
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($tree, (Join-Path $here "$name-windows.zip"), [System.IO.Compression.CompressionLevel]::Optimal, $false)
+
+          ./scripts/New-ReleaseChecksums.ps1 -Path "$name.zip", "$name-windows.zip" -OutputPath SHA256SUMS.txt
           Get-Content SHA256SUMS.txt
+
+      - name: Write winget and Scoop manifests
+        shell: pwsh
+        run: |
+          ./scripts/New-PackageManifests.ps1 -Version '${{ steps.version.outputs.version }}' -ChecksumPath SHA256SUMS.txt -WingetOutputPath package-manifests/winget -ScoopManifestPath package-manifests/scoop/bravedebloater.json
+          Get-ChildItem -Recurse -File package-manifests | ForEach-Object { $_.FullName }
+
+      - name: Upload package manifests
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package-manifests
+          path: package-manifests
+          if-no-files-found: error
 
       - name: Write release notes from CHANGELOG.md
         shell: pwsh
@@ -133,6 +194,16 @@ jobs:
             '- `./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields`'
             '- Windows PowerShell 5.1 compatibility checks'
             ''
+            '## Install'
+            ''
+            'One line, any platform with PowerShell (downloads this release, checks `SHA256SUMS.txt`, extracts, prints the preview command):'
+            ''
+            '```powershell'
+            "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/${env:GITHUB_REPOSITORY}/main/install.ps1))) -Version $version"
+            '```'
+            ''
+            "Or download ``BraveDebloater-$tag.zip`` below. ``BraveDebloater-$tag-windows.zip`` is the same tree flattened with the ``BraveDebloat.exe`` launcher; winget uses it."
+            ''
             '## Verify the download'
             ''
             'Compare the archive hash with `SHA256SUMS.txt`:'
@@ -154,4 +225,62 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --notes-file RELEASE_NOTES.md \
             --verify-tag \
-            "BraveDebloater-$GITHUB_REF_NAME.zip" SHA256SUMS.txt
+            "BraveDebloater-$GITHUB_REF_NAME.zip" "BraveDebloater-$GITHUB_REF_NAME-windows.zip" SHA256SUMS.txt
+
+  # Opens the microsoft/winget-pkgs pull request when a WINGET_TOKEN repository secret exists
+  # (a GitHub personal access token with public_repo scope on an account that forked winget-pkgs).
+  # Without the secret, download the package-manifests artifact and submit it by hand.
+  winget:
+    needs:
+      - publish
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      # Only used to decide which step runs; the token itself is exposed to the submit step alone.
+      HAS_WINGET_TOKEN: ${{ secrets.WINGET_TOKEN != '' }}
+      # Pinned wingetcreate release. Update the version and hash together from
+      # https://github.com/microsoft/winget-create/releases (wingetcreate.exe.txt holds the SHA256).
+      WINGETCREATE_VERSION: v1.12.13.0
+      WINGETCREATE_SHA256: 24042bd37915805615e6cf969ac57c6439124c3fe85823327f5f3fb24bd9ffea
+    steps:
+      - name: Download package manifests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: package-manifests
+          path: package-manifests
+
+      - name: Explain the manual path when no token is configured
+        if: env.HAS_WINGET_TOKEN != 'true'
+        shell: pwsh
+        run: |
+          Write-Host '::notice::WINGET_TOKEN is not set, so the winget-pkgs pull request was not opened. Download the package-manifests artifact of this run and run: wingetcreate submit --prtitle "New version: osfv.BraveDebloater version ${{ needs.publish.outputs.version }}" winget/o/osfv/BraveDebloater/${{ needs.publish.outputs.version }}'
+
+      - name: Download and verify the pinned wingetcreate release
+        if: env.HAS_WINGET_TOKEN == 'true'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/microsoft/winget-create/releases/download/$env:WINGETCREATE_VERSION/wingetcreate.exe"
+          Invoke-WebRequest -Uri $url -OutFile wingetcreate.exe
+          $actual = (Get-FileHash -LiteralPath wingetcreate.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $env:WINGETCREATE_SHA256.ToLowerInvariant()) {
+            Remove-Item wingetcreate.exe -Force
+            throw "wingetcreate.exe from $url hashed to $actual, expected $env:WINGETCREATE_SHA256. Not running it."
+          }
+          $signature = Get-AuthenticodeSignature -LiteralPath wingetcreate.exe
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+            Remove-Item wingetcreate.exe -Force
+            throw "wingetcreate.exe Authenticode signature is $($signature.Status) (signer: $($signature.SignerCertificate.Subject)). Not running it."
+          }
+          Write-Host "wingetcreate $env:WINGETCREATE_VERSION verified: SHA256 $actual, signed by $($signature.SignerCertificate.Subject)"
+
+      - name: Submit to microsoft/winget-pkgs
+        if: env.HAS_WINGET_TOKEN == 'true'
+        shell: pwsh
+        env:
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          $version = '${{ needs.publish.outputs.version }}'
+          $manifestDirectory = "package-manifests/winget/o/osfv/BraveDebloater/$version"
+          if (-not (Test-Path $manifestDirectory)) { throw "Missing winget manifests at $manifestDirectory." }
+          ./wingetcreate.exe submit --prtitle "New version: osfv.BraveDebloater version $version" $manifestDirectory
+          if ($LASTEXITCODE -ne 0) { throw "wingetcreate submit exited with $LASTEXITCODE." }

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added `install.ps1`, a one-line installer: `irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1 | iex` downloads the latest release zip and `SHA256SUMS.txt`, stops on a checksum mismatch, extracts to `%LOCALAPPDATA%\Programs\BraveDebloater` or `~/.local/share/BraveDebloater`, keeps `backups/` and your own files when upgrading in place (the new files are staged completely first and swapped in with rollback, so a failed upgrade leaves the previous install intact), and prints the preview command. `-Version`, `-Destination`, and `-ArchivePath` (install from a downloaded zip, still verified) are available when the script is run from a script block or file. It never changes Brave.
+- Added a Scoop manifest at `packaging/scoop/bravedebloater.json` (`scoop install https://raw.githubusercontent.com/osfv/BraveDebloater/main/packaging/scoop/bravedebloater.json`) with a `bravedebloat` shim and persisted `backups/`.
+- Added winget packaging: `packaging/launcher/BraveDebloat.cs` is a small launcher that runs `Invoke-BraveDebloat.ps1` from its own folder with the given arguments (winget only accepts `.exe` portable commands), `scripts/Build-Launcher.ps1` compiles it with the C# compiler from .NET Framework, and `scripts/New-PackageManifests.ps1` writes `osfv.BraveDebloater` manifests (schema 1.10.0) plus the Scoop manifest from a release's `SHA256SUMS.txt`.
+- Releases now also publish `BraveDebloater-vX.Y.Z-windows.zip` (the tagged tree flattened with `BraveDebloat.exe`), list both zips in `SHA256SUMS.txt`, include the one-line install command in the notes, store winget and Scoop manifests in a `package-manifests` workflow artifact, and open the winget-pkgs pull request when a `WINGET_TOKEN` secret is configured. CI builds and smoke tests the launcher on Windows.
+- `-IncludeFeature`, `-ExcludeFeature`, and `-OnlyFeature` split comma-separated values, so `-ExcludeFeature News,LeoAI` works through `powershell -File`, scheduled tasks, and the launcher, where the list arrives as one string.
+
 ## 0.4.0 - 2026-09-11
 
 - Added DNS control: `-DnsOverHttps Off|Automatic|Secure` sets Brave's `DnsOverHttpsMode`, `-DnsOverHttpsTemplates` sets one or more `https://` resolver templates (required for `Secure`), and `-DnsOverHttps Unmanaged` removes both policies so Brave settings control DNS again. Modes without templates also remove a leftover custom resolver. Previews show the current mode; backups and restores cover the string values; `.reg`, JSON, and plist exports include them.

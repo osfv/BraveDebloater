@@ -1117,6 +1117,226 @@ try {
         Assert-TextContains -Text $dnsErrorMessage -Expected $dnsErrorCase.Expected -Context "DNS control error for $(($dnsErrorArguments.GetEnumerator() | ForEach-Object { "-$($_.Key) $($_.Value)" }) -join ' ')"
     }
 
+    # `powershell -File` and the BraveDebloat.exe launcher pass "News,LeoAI" as one literal string.
+    $commaExcludeOutput = (& $scriptPath -Preset Extreme -ExcludeFeature 'News,LeoAI' -List *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $commaExcludeOutput -Expected 'BraveRewardsDisabled' -Context 'comma-separated -ExcludeFeature output'
+    Assert-TextDoesNotContain -Text $commaExcludeOutput -Unexpected 'BraveNewsDisabled' -Context 'comma-separated -ExcludeFeature output'
+    Assert-TextDoesNotContain -Text $commaExcludeOutput -Unexpected 'BraveAIChatEnabled' -Context 'comma-separated -ExcludeFeature output'
+    $commaOnlyOutput = (& $scriptPath -OnlyFeature 'Rewards, Wallet' -List *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $commaOnlyOutput -Expected 'BraveRewardsDisabled' -Context 'comma-separated -OnlyFeature output'
+    Assert-TextContains -Text $commaOnlyOutput -Expected 'BraveWalletDisabled' -Context 'comma-separated -OnlyFeature output'
+    Assert-TextDoesNotContain -Text $commaOnlyOutput -Unexpected 'BraveVPNDisabled' -Context 'comma-separated -OnlyFeature output'
+
+    # install.ps1 from a local release archive: checksum verification, extraction, upgrades that keep backups/.
+    $installScriptPath = Join-Path $root 'install.ps1'
+    $installRoot = Join-Path $tempRoot 'Install'
+    New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    function New-FakeReleaseArchive {
+        param([string]$Version, [string]$Folder)
+        $treeRoot = Join-Path $Folder "tree-$Version"
+        $tree = Join-Path $treeRoot "BraveDebloater-v$Version"
+        New-Item -ItemType Directory -Path (Join-Path $tree 'src') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $tree 'Invoke-BraveDebloat.ps1') -Value "`$ToolVersion = '$Version'" -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $tree "src/Release-$Version.ps1") -Value '# release file' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $tree 'LICENSE') -Value 'MIT' -Encoding ASCII
+        $archivePath = Join-Path $Folder "BraveDebloater-v$Version.zip"
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($treeRoot, $archivePath)
+        $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        Set-Content -LiteralPath (Join-Path $Folder 'SHA256SUMS.txt') -Value "$hash  BraveDebloater-v$Version.zip" -Encoding ASCII
+        return $archivePath
+    }
+    $firstArchiveFolder = Join-Path $installRoot 'first'
+    New-Item -ItemType Directory -Path $firstArchiveFolder -Force | Out-Null
+    $firstArchive = New-FakeReleaseArchive -Version '9.9.9' -Folder $firstArchiveFolder
+    $installDestination = Join-Path $installRoot 'Destination'
+    $installOutput = (& $installScriptPath -ArchivePath $firstArchive -Destination $installDestination *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $installOutput -Expected 'Checksum OK: BraveDebloater-v9.9.9.zip' -Context 'install.ps1 first install output'
+    Assert-TextContains -Text $installOutput -Expected "Installed BraveDebloater 9.9.9 to $installDestination" -Context 'install.ps1 first install output'
+    Assert-TextContains -Text $installOutput -Expected 'Nothing is written until you add -Apply.' -Context 'install.ps1 first install output'
+    if (-not (Test-Path -LiteralPath (Join-Path $installDestination 'src/Release-9.9.9.ps1'))) {
+        throw 'install.ps1 did not extract the release tree into the destination.'
+    }
+
+    New-Item -ItemType Directory -Path (Join-Path $installDestination 'backups') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $installDestination 'backups/keep.json') -Value '{}' -Encoding UTF8
+    Set-Content -LiteralPath (Join-Path $installDestination 'notes.txt') -Value 'mine' -Encoding UTF8
+    $secondArchiveFolder = Join-Path $installRoot 'second'
+    New-Item -ItemType Directory -Path $secondArchiveFolder -Force | Out-Null
+    $secondArchive = New-FakeReleaseArchive -Version '9.9.10' -Folder $secondArchiveFolder
+    $upgradeOutput = (& $installScriptPath -ArchivePath $secondArchive -Destination $installDestination *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $upgradeOutput -Expected 'Updated BraveDebloater 9.9.9 -> 9.9.10' -Context 'install.ps1 upgrade output'
+    Assert-TextContains -Text $upgradeOutput -Expected 'Existing backups were kept.' -Context 'install.ps1 upgrade output'
+    foreach ($keptPath in @('backups/keep.json', 'notes.txt', 'src/Release-9.9.10.ps1')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $installDestination $keptPath))) {
+            throw "install.ps1 upgrade lost $keptPath."
+        }
+    }
+    if (Test-Path -LiteralPath (Join-Path $installDestination 'src/Release-9.9.9.ps1')) {
+        throw 'install.ps1 upgrade left a stale file inside a replaced folder.'
+    }
+
+    # A failed upgrade must leave the previous install intact. Windows blocks moving a file that is open
+    # without FileShare.Delete, which fails the swap after staging (LICENSE is only moved, never read, so
+    # the lock cannot trip the version detection first); elsewhere a read-only destination fails the
+    # staging copy before anything is touched. Root ignores permissions, so that case is skipped.
+    $rollbackDestination = Join-Path $installRoot 'Rollback'
+    & $installScriptPath -ArchivePath $firstArchive -Destination $rollbackDestination *> $null
+    New-Item -ItemType Directory -Path (Join-Path $rollbackDestination 'backups') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $rollbackDestination 'backups/keep.json') -Value '{}' -Encoding UTF8
+    $rollbackLock = $null
+    $rollbackReadOnly = $false
+    if ($env:OS -eq 'Windows_NT') {
+        $rollbackLock = [System.IO.File]::Open((Join-Path $rollbackDestination 'LICENSE'), [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+    }
+    elseif ((& id -u) -ne '0') {
+        & chmod 555 $rollbackDestination
+        $rollbackReadOnly = $true
+    }
+    if ($null -ne $rollbackLock -or $rollbackReadOnly) {
+        $rollbackMessage = ''
+        try {
+            & $installScriptPath -ArchivePath $secondArchive -Destination $rollbackDestination *> $null
+        }
+        catch {
+            $rollbackMessage = $_.Exception.Message
+        }
+        finally {
+            if ($null -ne $rollbackLock) {
+                $rollbackLock.Dispose()
+            }
+            if ($rollbackReadOnly) {
+                & chmod 755 $rollbackDestination
+            }
+        }
+        if ($null -ne $rollbackLock) {
+            Assert-TextContains -Text $rollbackMessage -Expected 'The previous files were restored and nothing changed.' -Context "install.ps1 failed swap (got: $rollbackMessage)"
+        }
+        else {
+            Assert-TextContains -Text $rollbackMessage -Expected 'The existing files were not touched.' -Context "install.ps1 failed staging copy (got: $rollbackMessage)"
+        }
+        if ((Get-Content -LiteralPath (Join-Path $rollbackDestination 'Invoke-BraveDebloat.ps1') -Raw) -notmatch '9\.9\.9') {
+            throw 'install.ps1 left a failed upgrade half applied (entrypoint changed).'
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $rollbackDestination 'src/Release-9.9.9.ps1')) -or (Test-Path -LiteralPath (Join-Path $rollbackDestination 'src/Release-9.9.10.ps1'))) {
+            throw 'install.ps1 left a failed upgrade half applied (src changed).'
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $rollbackDestination 'backups/keep.json'))) {
+            throw 'install.ps1 lost backups during a failed upgrade.'
+        }
+        if (@(Get-ChildItem -LiteralPath $rollbackDestination -Force -Filter '.install-*').Count -ne 0) {
+            throw 'install.ps1 left staging folders behind after a failed upgrade.'
+        }
+    }
+
+    $tamperedChecksumPath = Join-Path $installRoot 'tampered-SHA256SUMS.txt'
+    Set-Content -LiteralPath $tamperedChecksumPath -Value ('{0}  BraveDebloater-v9.9.9.zip' -f ('0' * 64)) -Encoding ASCII
+    $installErrorCases = @(
+        @{ Arguments = @{ ArchivePath = $firstArchive; ChecksumPath = $tamperedChecksumPath }; Expected = 'Checksum mismatch for BraveDebloater-v9.9.9.zip' },
+        @{ Arguments = @{ ArchivePath = $firstArchive; ChecksumPath = (Join-Path $secondArchiveFolder 'SHA256SUMS.txt') }; Expected = 'has no SHA256 entry for BraveDebloater-v9.9.9.zip' },
+        @{ Arguments = @{ ArchivePath = $firstArchive; Version = '9.9.9' }; Expected = '-Version has no effect with -ArchivePath' },
+        @{ Arguments = @{ ArchivePath = (Join-Path $installRoot 'missing.zip') }; Expected = 'Archive not found' }
+    )
+    foreach ($installErrorCase in $installErrorCases) {
+        $installErrorMessage = ''
+        $installErrorArguments = $installErrorCase.Arguments
+        try {
+            & $installScriptPath -Destination (Join-Path $installRoot 'ErrorDestination') @installErrorArguments *> $null
+        }
+        catch {
+            $installErrorMessage = $_.Exception.Message
+        }
+        Assert-TextContains -Text $installErrorMessage -Expected $installErrorCase.Expected -Context "install.ps1 error for $(($installErrorArguments.Keys | Sort-Object) -join ', ')"
+    }
+    if (Test-Path -LiteralPath (Join-Path $installRoot 'ErrorDestination/Invoke-BraveDebloat.ps1')) {
+        throw 'install.ps1 installed files although a check failed.'
+    }
+    if ((Get-Content -LiteralPath (Join-Path $installDestination 'Invoke-BraveDebloat.ps1') -Raw) -notmatch "9\.9\.10") {
+        throw 'install.ps1 changed an existing install while a check failed.'
+    }
+    $foreignDestination = Join-Path $installRoot 'Foreign'
+    New-Item -ItemType Directory -Path $foreignDestination -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $foreignDestination 'other.txt') -Value 'not ours' -Encoding UTF8
+    $foreignMessage = ''
+    try {
+        & $installScriptPath -ArchivePath $firstArchive -Destination $foreignDestination *> $null
+    }
+    catch {
+        $foreignMessage = $_.Exception.Message
+    }
+    Assert-TextContains -Text $foreignMessage -Expected 'does not contain Invoke-BraveDebloat.ps1' -Context 'install.ps1 non-empty foreign destination'
+    if (Test-Path -LiteralPath (Join-Path $foreignDestination 'Invoke-BraveDebloat.ps1')) {
+        throw 'install.ps1 wrote into a folder that is not a BraveDebloater install.'
+    }
+
+    # New-PackageManifests.ps1 writes the winget manifests and the Scoop manifest from SHA256SUMS.txt.
+    $packageRoot = Join-Path $tempRoot 'Packages'
+    New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
+    $packageChecksumPath = Join-Path $packageRoot 'SHA256SUMS.txt'
+    Set-Content -LiteralPath $packageChecksumPath -Value @(
+        ('{0}  BraveDebloater-v1.2.3.zip' -f ('a' * 64)),
+        ('{0}  BraveDebloater-v1.2.3-windows.zip' -f ('b' * 64))
+    ) -Encoding ASCII
+    $packageScoopPath = Join-Path $packageRoot 'scoop/bravedebloater.json'
+    $packageWingetPath = Join-Path $packageRoot 'winget'
+    & (Join-Path $root 'scripts/New-PackageManifests.ps1') -Version v1.2.3 -ChecksumPath $packageChecksumPath -ReleaseDate 2026-01-02 -WingetOutputPath $packageWingetPath -ScoopManifestPath $packageScoopPath *> $null
+    $wingetDirectory = Join-Path $packageWingetPath 'o/osfv/BraveDebloater/1.2.3'
+    $installerManifest = Get-Content -LiteralPath (Join-Path $wingetDirectory 'osfv.BraveDebloater.installer.yaml') -Raw
+    foreach ($expectedLine in @(
+            'PackageIdentifier: osfv.BraveDebloater',
+            'PackageVersion: 1.2.3',
+            'InstallerType: zip',
+            'NestedInstallerType: portable',
+            'RelativeFilePath: BraveDebloat.exe',
+            'ArchiveBinariesDependOnPath: true',
+            'ReleaseDate: 2026-01-02',
+            'InstallerUrl: https://github.com/osfv/BraveDebloater/releases/download/v1.2.3/BraveDebloater-v1.2.3-windows.zip',
+            ('InstallerSha256: {0}' -f ('B' * 64)),
+            'ManifestVersion: 1.10.0')) {
+        Assert-TextContains -Text $installerManifest -Expected $expectedLine -Context 'winget installer manifest'
+    }
+    $versionManifest = Get-Content -LiteralPath (Join-Path $wingetDirectory 'osfv.BraveDebloater.yaml') -Raw
+    Assert-TextContains -Text $versionManifest -Expected 'ManifestType: version' -Context 'winget version manifest'
+    Assert-TextContains -Text $versionManifest -Expected 'DefaultLocale: en-US' -Context 'winget version manifest'
+    $localeManifest = Get-Content -LiteralPath (Join-Path $wingetDirectory 'osfv.BraveDebloater.locale.en-US.yaml') -Raw
+    Assert-TextContains -Text $localeManifest -Expected 'ManifestType: defaultLocale' -Context 'winget locale manifest'
+    Assert-TextContains -Text $localeManifest -Expected 'License: MIT' -Context 'winget locale manifest'
+    Assert-TextContains -Text $localeManifest -Expected 'ReleaseNotesUrl: https://github.com/osfv/BraveDebloater/releases/tag/v1.2.3' -Context 'winget locale manifest'
+    $generatedScoop = Get-Content -LiteralPath $packageScoopPath -Raw | ConvertFrom-Json
+    if ([string]$generatedScoop.version -ne '1.2.3' -or [string]$generatedScoop.hash -ne ('a' * 64) -or [string]$generatedScoop.extract_dir -ne 'BraveDebloater-v1.2.3') {
+        throw 'New-PackageManifests.ps1 wrote a Scoop manifest with the wrong version, hash, or extract_dir.'
+    }
+    $scoopBytes = [System.IO.File]::ReadAllBytes($packageScoopPath)
+    if ($scoopBytes.Length -ge 3 -and $scoopBytes[0] -eq 0xef -and $scoopBytes[1] -eq 0xbb -and $scoopBytes[2] -eq 0xbf) {
+        throw 'New-PackageManifests.ps1 wrote a UTF-8 BOM.'
+    }
+    # Releases without a Windows zip only get the Scoop manifest.
+    Set-Content -LiteralPath $packageChecksumPath -Value ('{0}  BraveDebloater-v1.2.4.zip' -f ('c' * 64)) -Encoding ASCII
+    $scoopOnlyOutput = (& (Join-Path $root 'scripts/New-PackageManifests.ps1') -Version 1.2.4 -ChecksumPath $packageChecksumPath -WingetOutputPath $packageWingetPath -ScoopManifestPath $packageScoopPath *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $scoopOnlyOutput -Expected 'no winget manifests were written' -Context 'New-PackageManifests.ps1 without a Windows zip'
+    if (Test-Path -LiteralPath (Join-Path $packageWingetPath 'o/osfv/BraveDebloater/1.2.4')) {
+        throw 'New-PackageManifests.ps1 wrote winget manifests without a Windows zip hash.'
+    }
+
+    # The committed Scoop manifest must point at a real release layout.
+    $committedScoop = Get-Content -LiteralPath (Join-Path $root 'packaging/scoop/bravedebloater.json') -Raw | ConvertFrom-Json
+    $committedScoopVersion = [string]$committedScoop.version
+    if ($committedScoopVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+        throw "packaging/scoop/bravedebloater.json has an invalid version '$committedScoopVersion'."
+    }
+    if ([string]$committedScoop.url -ne "https://github.com/osfv/BraveDebloater/releases/download/v$committedScoopVersion/BraveDebloater-v$committedScoopVersion.zip") {
+        throw 'packaging/scoop/bravedebloater.json url does not match its version.'
+    }
+    if ([string]$committedScoop.extract_dir -ne "BraveDebloater-v$committedScoopVersion") {
+        throw 'packaging/scoop/bravedebloater.json extract_dir does not match its version.'
+    }
+    if ([string]$committedScoop.hash -notmatch '^[0-9a-f]{64}$') {
+        throw 'packaging/scoop/bravedebloater.json hash is not a lowercase SHA256.'
+    }
+    if ([string]$committedScoop.bin[0][0] -ne 'Invoke-BraveDebloat.ps1' -or [string]$committedScoop.persist -ne 'backups') {
+        throw 'packaging/scoop/bravedebloater.json must shim Invoke-BraveDebloat.ps1 and persist backups.'
+    }
+
     Write-Host 'Behavior checks passed.'
 }
 finally {
