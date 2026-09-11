@@ -25,6 +25,11 @@ These official-template policies were added in the `153.1.96.44` pass because th
 
 - `EmailAliasesEnabled = 0`
 
+These official-template policies back the opt-in `-DnsOverHttps` add-on and are never part of a preset. Their values come from the command line, not from the manifest:
+
+- `DnsOverHttpsMode`: a string enum in the ADMX (`off`, `automatic`, `secure`). The manifest `dnsControl.modes` map is checked against that enum.
+- `DnsOverHttpsTemplates`: a `text` policy holding one or more `https://` DoH URI templates separated by spaces. `Secure` requires it; `Off`, `Automatic` without templates, and `Unmanaged` remove a leftover copy so an old custom resolver does not keep applying.
+
 The manifest's `deprecatedPolicies` list records names that must stay out of active presets. The current template still lists `PrivacySandboxPromptEnabled`, `PromotionalTabsEnabled`, and `IPFSEnabled`, but places them under the `DeprecatedPolicies` category. They stay out of the active manifest; `PromotionsEnabled = 0` is retained as the supported policy for promotional content. Apply and dry-run remove leftover copies of those names from the selected Brave policy target so older installs do not keep showing them as obsolete in `brave://policy`.
 
 These official-template policies were checked and left out:
@@ -59,7 +64,8 @@ It checks that:
 - the zip `VERSION` is not older than the manifest version. A newer zip passes with a warning because the `latest` download moves with every Brave release; pass `-RequireVersionMatch` for release checks that must match exactly;
 - every manifest policy exists in `windows/admx/brave.admx` and is not under `DeprecatedPolicies`;
 - every manifest `DWord` value fits the ADMX definition: `0`/`1` only for boolean policies (`enabledValue`/`disabledValue`), and other values only when listed as an `enum` item or inside the `minValue`/`maxValue` range of a `decimal` element. This matters because the Linux JSON and macOS plist writers emit `0`/`1` as booleans, which Brave rejects for integer policies;
-- every manifest `String` policy is a `text` element in the ADMX;
+- every manifest `String` policy is a `text` element in the ADMX, or a string `enum` that lists the manifest value;
+- every `dnsControl` mode value is listed by the ADMX enum for `dnsControl.modePolicy`, and `dnsControl.templatesPolicy` exists in the template;
 - every `deprecatedPolicies` name is absent from the ADMX template, or still present only under `DeprecatedPolicies` / `deprecated="true"`;
 - every iOS allow-listed policy is defined in the manifest.
 

@@ -47,6 +47,8 @@ Extra UI in the `Extreme` preset:
 
 Optional profile preference cleanup can also hide some new tab, sponsored background, and toolbar surfaces. That part edits per-profile `Preferences` JSON, so close Brave before applying it.
 
+Optional DNS control (`-DnsOverHttps`) sets Brave's DNS-over-HTTPS mode to off, automatic, or secure with a resolver you choose, or removes those policies again.
+
 ## Install
 
 Download the latest release from the repository's Releases page, then extract the zip to a folder you control, such as `Downloads\BraveDebloater`.
@@ -213,6 +215,25 @@ Stable policy behavior is unchanged. `-ProfileRoot` still overrides the detected
 `-LockShields` is an optional add-on. It enforces default ad blocking, standard fingerprinting protection, HTTPS upgrades, and stricter referrer behavior.
 
 By default, the tool uses `Extreme` and does not lock Shields. It refuses to apply policies that disable Shields, add Shield-disabled URLs, weaken Safe Browsing, or disable updates.
+
+## DNS Control
+
+`-DnsOverHttps` is an optional add-on that manages Brave's DNS-over-HTTPS policies (`DnsOverHttpsMode` and `DnsOverHttpsTemplates`). Nothing DNS-related is written unless you pass it.
+
+```powershell
+# Force secure DNS through a resolver you choose (Secure needs at least one https:// template)
+.\Invoke-BraveDebloat.ps1 -DnsOverHttps Secure -DnsOverHttpsTemplates https://dns.quad9.net/dns-query
+
+# Upgrade to DNS-over-HTTPS when the system resolver supports it, optionally with a preferred resolver
+.\Invoke-BraveDebloat.ps1 -DnsOverHttps Automatic
+.\Invoke-BraveDebloat.ps1 -DnsOverHttps Automatic -DnsOverHttpsTemplates https://dns.quad9.net/dns-query
+
+# Turn DNS-over-HTTPS off, or hand DNS back to Brave settings
+.\Invoke-BraveDebloat.ps1 -DnsOverHttps Off
+.\Invoke-BraveDebloat.ps1 -DnsOverHttps Unmanaged
+```
+
+Preview lines show the current mode, and switching to a mode without templates also removes a leftover custom resolver so `brave://policy` stays tidy. `Unmanaged` removes both policies. Combine with `-OnlyFeature` when you do not want the preset applied in the same run. DNS control is not available for iOS/iPadOS exports because Brave's mobile MDM does not document those policies.
 
 ## Feature Toggles
 
