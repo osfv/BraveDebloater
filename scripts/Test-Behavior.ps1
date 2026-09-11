@@ -1066,6 +1066,32 @@ try {
     Assert-TextContains -Text $dnsRegDocument -Expected '"DnsOverHttpsMode"="secure"' -Context 'DNS .reg export'
     Assert-TextContains -Text $dnsRegDocument -Expected "`"DnsOverHttpsTemplates`"=`"$dnsResolver`"" -Context 'DNS .reg export'
 
+    # .reg exports delete the policies a mode removes; other formats say the removal must be done by hand.
+    $dnsRegRemovePath = Join-Path $tempRoot 'dns-remove.reg'
+    $dnsRegRemoveOutput = (& $scriptPath -Platform Windows -OnlyFeature Rewards -ProfileRoot $missingProfileRoot -DnsOverHttps Unmanaged -ExportPolicyPath $dnsRegRemovePath *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsRegRemoveOutput -Expected 'also deletes DnsOverHttpsMode and DnsOverHttpsTemplates when imported' -Context 'DNS Unmanaged .reg export output'
+    $dnsRegRemoveDocument = [System.IO.File]::ReadAllText($dnsRegRemovePath, [System.Text.Encoding]::Unicode)
+    Assert-TextContains -Text $dnsRegRemoveDocument -Expected '"DnsOverHttpsMode"=-' -Context 'DNS Unmanaged .reg export'
+    Assert-TextContains -Text $dnsRegRemoveDocument -Expected '"DnsOverHttpsTemplates"=-' -Context 'DNS Unmanaged .reg export'
+    $dnsRegAutomaticPath = Join-Path $tempRoot 'dns-automatic.reg'
+    & $scriptPath -Platform Windows -OnlyFeature Rewards -ProfileRoot $missingProfileRoot -DnsOverHttps Automatic -ExportPolicyPath $dnsRegAutomaticPath *>&1 | Out-Null
+    $dnsRegAutomaticDocument = [System.IO.File]::ReadAllText($dnsRegAutomaticPath, [System.Text.Encoding]::Unicode)
+    Assert-TextContains -Text $dnsRegAutomaticDocument -Expected '"DnsOverHttpsMode"="automatic"' -Context 'DNS Automatic .reg export'
+    Assert-TextContains -Text $dnsRegAutomaticDocument -Expected '"DnsOverHttpsTemplates"=-' -Context 'DNS Automatic .reg export'
+    $dnsJsonExportPath = Join-Path $tempRoot 'dns-automatic-export.json'
+    $dnsJsonExportOutput = (& $scriptPath -Platform Linux -OnlyFeature Rewards -DnsOverHttps Automatic -ExportPolicyPath $dnsJsonExportPath *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsJsonExportOutput -Expected 'export cannot remove policies. Remove DnsOverHttpsTemplates' -Context 'DNS JSON export warning'
+
+    # iOS exports reject DNS control even when it only removes policies.
+    $dnsIosRejected = ''
+    try {
+        & $scriptPath -Platform iOS -OnlyFeature Rewards -DnsOverHttps Unmanaged -ExportPolicyPath (Join-Path $tempRoot 'dns-ios.mobileconfig') | Out-Null
+    }
+    catch {
+        $dnsIosRejected = $_.Exception.Message
+    }
+    Assert-TextContains -Text $dnsIosRejected -Expected 'DnsOverHttpsMode' -Context 'iOS DNS Unmanaged export rejection'
+
     # Invalid DNS control combinations stop before anything is planned.
     $dnsErrorCases = @(
         @{ Arguments = @{ DnsOverHttps = 'Secure' }; Expected = 'needs -DnsOverHttpsTemplates' },
@@ -1073,8 +1099,12 @@ try {
         @{ Arguments = @{ DnsOverHttps = 'Off'; DnsOverHttpsTemplates = $dnsResolver }; Expected = 'has no effect with -DnsOverHttps Off' },
         @{ Arguments = @{ DnsOverHttps = 'Unmanaged'; DnsOverHttpsTemplates = $dnsResolver }; Expected = 'cannot be combined with -DnsOverHttps Unmanaged' },
         @{ Arguments = @{ DnsOverHttps = 'Secure'; DnsOverHttpsTemplates = 'http://insecure.invalid/dns-query' }; Expected = 'is not an https:// URI' },
-        @{ Arguments = @{ DnsOverHttps = 'Secure'; DnsOverHttpsTemplates = 'https://dns.example/dns query' }; Expected = 'is not an https:// URI' }
+        @{ Arguments = @{ DnsOverHttps = 'Secure'; DnsOverHttpsTemplates = 'https://dns.example/dns query' }; Expected = 'is not an https:// URI' },
+        @{ Arguments = @{ DnsOverHttps = 'Secure'; DnsOverHttpsTemplates = 'https:///dns-query' }; Expected = 'is not an https:// URI' },
+        @{ Arguments = @{ DnsOverHttps = 'Secure'; DnsOverHttpsTemplates = 'https://' }; Expected = 'is not an https:// URI' }
     )
+    $dnsTemplateVariantOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates 'https://dns.google/dns-query{?dns}' *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsTemplateVariantOutput -Expected 'Would set DnsOverHttpsTemplates = https://dns.google/dns-query{?dns}' -Context 'DNS template with URI variable'
     foreach ($dnsErrorCase in $dnsErrorCases) {
         $dnsErrorMessage = ''
         $dnsErrorArguments = $dnsErrorCase.Arguments

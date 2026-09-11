@@ -235,6 +235,8 @@ By default, the tool uses `Extreme` and does not lock Shields. It refuses to app
 
 Preview lines show the current mode, and switching to a mode without templates also removes a leftover custom resolver so `brave://policy` stays tidy. `Unmanaged` removes both policies. Combine with `-OnlyFeature` when you do not want the preset applied in the same run. DNS control is not available for iOS/iPadOS exports because Brave's mobile MDM does not document those policies.
 
+`.reg` exports carry those removals as `"Name"=-` deletion entries. JSON and plist exports cannot remove policies, so the export prints a warning naming the policies to remove on the device.
+
 ## Feature Toggles
 
 Use `-Customize` for an interactive yes/no prompt for each cleanup.
