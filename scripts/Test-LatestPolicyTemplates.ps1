@@ -107,8 +107,12 @@ function Assert-AdmxValueType {
     $textElements = @($Node.SelectNodes('elements/text'))
 
     if ($type -eq 'String') {
-        if ($textElements.Count -eq 0) {
-            throw "Manifest policy '$PolicyName' is a String but the official Brave ADMX template does not define it as a text policy."
+        $enumStrings = @($Node.SelectNodes('elements/enum/item/value/string') | ForEach-Object { [string]$_.InnerText })
+        if ($textElements.Count -eq 0 -and $enumStrings.Count -eq 0) {
+            throw "Manifest policy '$PolicyName' is a String but the official Brave ADMX template does not define it as a text or string-enum policy."
+        }
+        if ($textElements.Count -eq 0 -and $enumStrings -notcontains [string]$Policy.value) {
+            throw "Manifest policy '$PolicyName' has value '$($Policy.value)' which is not one of the string enum values in the official Brave ADMX template: $($enumStrings -join ', ')."
         }
         return
     }
@@ -213,6 +217,22 @@ try {
         if ($null -eq $manifest.policies.PSObject.Properties[$policyName]) {
             throw "iOS platform support references undefined policy '$policyName'."
         }
+    }
+
+    # Every -DnsOverHttps mode must be a value the ADMX enum for the mode policy actually lists.
+    $dnsControl = $manifest.dnsControl
+    $dnsModePolicyName = [string]$dnsControl.modePolicy
+    if (-not $templatePolicies.ContainsKey($dnsModePolicyName)) {
+        throw "dnsControl.modePolicy '$dnsModePolicyName' is not present in the official Brave ADMX template."
+    }
+    $dnsModeStrings = @($templatePolicies[$dnsModePolicyName].SelectNodes('elements/enum/item/value/string') | ForEach-Object { [string]$_.InnerText })
+    foreach ($modeProperty in $dnsControl.modes.PSObject.Properties) {
+        if ($dnsModeStrings -notcontains [string]$modeProperty.Value) {
+            throw "dnsControl mode '$($modeProperty.Name)' uses value '$($modeProperty.Value)' which the official Brave ADMX template does not list for $dnsModePolicyName ($($dnsModeStrings -join ', '))."
+        }
+    }
+    if (-not $templatePolicies.ContainsKey([string]$dnsControl.templatesPolicy)) {
+        throw "dnsControl.templatesPolicy '$($dnsControl.templatesPolicy)' is not present in the official Brave ADMX template."
     }
 }
 finally {

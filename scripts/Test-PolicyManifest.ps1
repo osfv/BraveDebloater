@@ -208,6 +208,52 @@ foreach ($feature in $features) {
     }
 }
 
+if ($null -eq $manifest.PSObject.Properties['dnsControl']) {
+    throw 'Manifest is missing dnsControl.'
+}
+foreach ($dnsPolicyName in @([string]$manifest.dnsControl.modePolicy, [string]$manifest.dnsControl.templatesPolicy)) {
+    if (-not $policies.ContainsKey($dnsPolicyName)) {
+        throw "Manifest dnsControl references undefined policy '$dnsPolicyName'."
+    }
+    if ([string]$policies[$dnsPolicyName].type -ne 'String') {
+        throw "Manifest dnsControl policy '$dnsPolicyName' must be a String policy."
+    }
+    foreach ($presetName in $presets.Keys) {
+        if ((Resolve-Preset -Name $presetName -Presets $presets) -contains $dnsPolicyName) {
+            throw "Preset '$presetName' must not include DNS control policy '$dnsPolicyName'; DNS is opt-in through -DnsOverHttps."
+        }
+    }
+}
+$dnsModes = @($manifest.dnsControl.modes.PSObject.Properties)
+foreach ($dnsMode in $dnsModes) {
+    if ([string]::IsNullOrWhiteSpace([string]$dnsMode.Value)) {
+        throw "Manifest dnsControl mode '$($dnsMode.Name)' has a blank value."
+    }
+}
+# Resolve-DnsControlPlan gives Off, Secure, and Unmanaged specific rules, so the manifest modes and
+# the -DnsOverHttps ValidateSet must stay exactly in step with each other.
+$expectedDnsModes = @('Off', 'Automatic', 'Secure')
+$manifestDnsModes = @($dnsModes | ForEach-Object { $_.Name } | Sort-Object)
+if (($manifestDnsModes -join ',') -ne (($expectedDnsModes | Sort-Object) -join ',')) {
+    throw "Manifest dnsControl.modes must be exactly $($expectedDnsModes -join ', '); found $($manifestDnsModes -join ', ')."
+}
+$entryTokens = $null
+$entryErrors = $null
+$entryAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$entryTokens, [ref]$entryErrors)
+$dnsParameter = $entryAst.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'DnsOverHttps' } | Select-Object -First 1
+if ($null -eq $dnsParameter) {
+    throw 'Invoke-BraveDebloat.ps1 is missing the -DnsOverHttps parameter.'
+}
+$dnsValidateSet = $dnsParameter.Attributes | Where-Object { $_ -is [System.Management.Automation.Language.AttributeAst] -and $_.TypeName.Name -eq 'ValidateSet' } | Select-Object -First 1
+if ($null -eq $dnsValidateSet) {
+    throw '-DnsOverHttps must declare a ValidateSet.'
+}
+$cliDnsModes = @($dnsValidateSet.PositionalArguments | ForEach-Object { [string]$_.Value } | Sort-Object)
+$expectedCliDnsModes = @($expectedDnsModes + 'Unmanaged' | Sort-Object)
+if (($cliDnsModes -join ',') -ne ($expectedCliDnsModes -join ',')) {
+    throw "-DnsOverHttps ValidateSet must be exactly $($expectedCliDnsModes -join ', '); found $($cliDnsModes -join ', ')."
+}
+
 foreach ($patch in @($manifest.profilePreferencePatches)) {
     if ([string]::IsNullOrWhiteSpace([string]$patch.path)) {
         throw 'Profile patch is missing a path.'

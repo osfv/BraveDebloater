@@ -4,6 +4,7 @@
 
 ## 0.4.0 - 2026-09-11
 
+- Added DNS control: `-DnsOverHttps Off|Automatic|Secure` sets Brave's `DnsOverHttpsMode`, `-DnsOverHttpsTemplates` sets one or more `https://` resolver templates (required for `Secure`), and `-DnsOverHttps Unmanaged` removes both policies so Brave settings control DNS again. Modes without templates also remove a leftover custom resolver. Previews show the current mode; backups and restores cover the string values; `.reg`, JSON, and plist exports include them.
 - Fixed profile `Preferences` backups from different apply runs overwriting each other. Each backup now keeps its copies in `backups/profile-files/<backup-name>/`, so restoring an older backup brings back that run's original file. Existing backups keep working.
 - Fixed restores of Linux JSON and macOS policy values turning an integer policy that was `0` or `1` (for example `NetworkPredictionOptions = 0`) into a boolean Brave rejects. Restores now write values back with their recorded type, and macOS reads use `defaults read-type` so booleans stay booleans.
 - Fixed `.reg` exports escaping a backslash in string values as four backslashes instead of two.

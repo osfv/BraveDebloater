@@ -821,7 +821,8 @@ function ConvertTo-PlistDocument {
 function ConvertTo-RegFileDocument {
     param(
         [Parameter(Mandatory = $true)][string]$RegistryPath,
-        [Parameter(Mandatory = $true)]$Payload
+        [Parameter(Mandatory = $true)]$Payload,
+        [string[]]$RemoveNames = @()
     )
 
     $keyPath = $RegistryPath -replace '^Registry::', ''
@@ -829,6 +830,13 @@ function ConvertTo-RegFileDocument {
     [void]$lines.Add('Windows Registry Editor Version 5.00')
     [void]$lines.Add('')
     [void]$lines.Add("[$keyPath]")
+
+    # `"Name"=-` deletes a value on import, so removals travel with the export like they do on apply.
+    foreach ($removeName in @($RemoveNames)) {
+        if (-not [string]::IsNullOrWhiteSpace($removeName) -and -not $Payload.Contains($removeName)) {
+            [void]$lines.Add(('"{0}"=-' -f $removeName))
+        }
+    }
 
     foreach ($entry in $Payload.GetEnumerator()) {
         $value = $entry.Value
@@ -885,7 +893,8 @@ function Export-PolicyPayload {
     param(
         [Parameter(Mandatory = $true)]$Target,
         [Parameter(Mandatory = $true)]$Payload,
-        [Parameter(Mandatory = $true)][string]$Path
+        [Parameter(Mandatory = $true)][string]$Path,
+        [string[]]$RemoveNames = @()
     )
 
     $format = Get-PolicyExportFormat -Target $Target -Path $Path
@@ -894,7 +903,7 @@ function Export-PolicyPayload {
             Set-JsonFileContent -Path $Path -Object $Payload
         }
         'Reg' {
-            $document = ConvertTo-RegFileDocument -RegistryPath $Target.Path -Payload $Payload
+            $document = ConvertTo-RegFileDocument -RegistryPath $Target.Path -Payload $Payload -RemoveNames $RemoveNames
             Set-TextFileContent -Path $Path -Content $document -Encoding ([System.Text.Encoding]::Unicode)
         }
         'MobileConfig' {

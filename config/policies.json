@@ -611,6 +611,27 @@
       "value": 2,
       "category": "Shield baseline",
       "reason": "Cap permissive referrer policies to strict-origin-when-cross-origin."
+    },
+    "DnsOverHttpsMode": {
+      "type": "String",
+      "value": "automatic",
+      "category": "DNS",
+      "reason": "Set the DNS-over-HTTPS mode chosen with -DnsOverHttps."
+    },
+    "DnsOverHttpsTemplates": {
+      "type": "String",
+      "value": "",
+      "category": "DNS",
+      "reason": "Use the DNS-over-HTTPS resolver template(s) chosen with -DnsOverHttpsTemplates."
+    }
+  },
+  "dnsControl": {
+    "modePolicy": "DnsOverHttpsMode",
+    "templatesPolicy": "DnsOverHttpsTemplates",
+    "modes": {
+      "Off": "off",
+      "Automatic": "automatic",
+      "Secure": "secure"
     }
   },
   "profilePreferencePatches": [
