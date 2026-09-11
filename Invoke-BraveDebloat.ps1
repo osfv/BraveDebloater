@@ -261,17 +261,25 @@ if (-not [string]::IsNullOrWhiteSpace($PolicyPath) -and $policyTarget.Kind -noti
 
 # Enforce the iOS/iPadOS MDM allowlist for every run (dry-run, apply, and export) so the
 # preview never implies on-device support for policies Brave's mobile MDM cannot accept.
-Assert-MobilePolicySupport -PlatformName $platformName -PolicyNames $policyNames.ToArray() -Manifest $manifest
+Assert-MobilePolicySupport -PlatformName $platformName -PolicyNames (@($policyNames.ToArray()) + @($dnsRemovePolicyNames.ToArray())) -Manifest $manifest
 
 if ($exportRequested) {
     $payload = Get-PolicyPayload -PolicyNames $policyNames.ToArray() -PolicyDefinitions $policyDefinitions
-    $exportFormat = Export-PolicyPayload -Target $policyTarget -Payload $payload -Path $ExportPolicyPath
+    $exportFormat = Export-PolicyPayload -Target $policyTarget -Payload $payload -Path $ExportPolicyPath -RemoveNames $dnsRemovePolicyNames.ToArray()
     $exportHint = switch ($exportFormat) {
         'Reg' { 'Double-click it or run `reg import` on the target Windows machine, then restart Brave.' }
         'MobileConfig' { 'Install that profile with your MDM or device manager.' }
         default { 'Apply that file with your device or policy manager.' }
     }
     Write-Step "Exported $($policyNames.Count) policy value(s) for $platformName to $ExportPolicyPath. $exportHint"
+    if ($dnsRemovePolicyNames.Count -gt 0) {
+        if ($exportFormat -eq 'Reg') {
+            Write-Step "The .reg file also deletes $($dnsRemovePolicyNames -join ' and ') when imported."
+        }
+        else {
+            Write-Warning "A $exportFormat export cannot remove policies. Remove $($dnsRemovePolicyNames -join ' and ') from the device's Brave policies yourself, or the old DNS setting stays in effect."
+        }
+    }
     return
 }
 

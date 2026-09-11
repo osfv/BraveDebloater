@@ -292,8 +292,8 @@ function Resolve-DnsControlPlan {
             if ([string]::IsNullOrWhiteSpace($part)) {
                 continue
             }
-            if ($part -notmatch '^https://[^\s"]+$') {
-                throw "DNS-over-HTTPS template '$part' is not an https:// URI. Use the resolver's DoH URL, for example https://dns.quad9.net/dns-query."
+            if (-not (Test-DnsOverHttpsTemplate -Template $part)) {
+                throw "DNS-over-HTTPS template '$part' is not an https:// URI with a host. Use the resolver's DoH URL, for example https://dns.quad9.net/dns-query."
             }
             Add-StringIfMissing -List $cleanTemplates -Value $part
         }
@@ -338,6 +338,21 @@ function Resolve-DnsControlPlan {
         RemoveNames = $removeNames
         Summary = $summary
     }
+}
+
+function Test-DnsOverHttpsTemplate {
+    param([Parameter(Mandatory = $true)][string]$Template)
+
+    # A DoH template is an absolute https:// URI with a host; `{?dns}` variables are allowed.
+    # The regex guards the authority part because older .NET parses "https:///x" as host "x".
+    if ($Template -notmatch '^https://[^/\s"?#]+(/|$)') {
+        return $false
+    }
+    $uri = $null
+    if (-not [System.Uri]::TryCreate($Template, [System.UriKind]::Absolute, [ref]$uri)) {
+        return $false
+    }
+    return ($uri.Scheme -eq 'https' -and -not [string]::IsNullOrWhiteSpace($uri.Host))
 }
 
 function New-DnsControlDefinition {
