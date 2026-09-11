@@ -289,15 +289,20 @@ See `docs/debloatable-validation.md` for the source version, the policy choices,
 
 See `ROADMAP.md` for planned safety, testing, release trust, user experience, and maintainability work.
 
-## Release Checksums
+## Releasing
 
-Generate SHA256 checksums for release artifacts before publishing:
+Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`. It reruns the project checks, confirms the tag matches `$ToolVersion` in `Invoke-BraveDebloat.ps1` and has a `## X.Y.Z - <date>` section in `CHANGELOG.md`, builds `BraveDebloater-vX.Y.Z.zip` from the tagged tree, writes `SHA256SUMS.txt`, and publishes the GitHub release with that changelog section as the notes.
+
+```powershell
+git tag -a vX.Y.Z -m "BraveDebloater vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+To build checksums by hand, for example for a manually assembled archive:
 
 ```powershell
 .\scripts\New-ReleaseChecksums.ps1 -Path .\BraveDebloater-vX.Y.Z.zip -OutputPath .\SHA256SUMS.txt
 ```
-
-Upload `SHA256SUMS.txt` beside the release archive.
 
 ## Project Checks
 
