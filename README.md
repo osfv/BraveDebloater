@@ -51,19 +51,39 @@ Optional DNS control (`-DnsOverHttps`) sets Brave's DNS-over-HTTPS mode to off, 
 
 ## Install
 
-Download the latest release from the repository's Releases page, then extract the zip to a folder you control, such as `Downloads\BraveDebloater`.
+One line in PowerShell (Windows PowerShell 5.1 or PowerShell 7 on Windows, macOS, or Linux):
 
-Open PowerShell in that folder and run the default dry-run:
+```powershell
+irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1 | iex
+```
+
+It downloads the latest release zip and `SHA256SUMS.txt`, refuses to continue if the hash does not match, extracts to `%LOCALAPPDATA%\Programs\BraveDebloater` (Windows) or `~/.local/share/BraveDebloater`, and prints the preview command. Running it again upgrades in place and keeps `backups/`. It does not touch Brave. To pick a version or folder:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1))) -Version 0.4.0 -Destination C:\Tools\BraveDebloater
+```
+
+Scoop users can install straight from this repository, with a `bravedebloat` shim and `backups/` persisted across upgrades:
+
+```powershell
+scoop install https://raw.githubusercontent.com/osfv/BraveDebloater/main/packaging/scoop/bravedebloater.json
+```
+
+winget: releases from 0.5.0 ship `BraveDebloater-vX.Y.Z-windows.zip` with a `BraveDebloat.exe` launcher so the package can be listed in [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) as `osfv.BraveDebloater`. Once that listing is accepted, `winget install osfv.BraveDebloater` puts `BraveDebloat` on your `PATH`; it runs `Invoke-BraveDebloat.ps1` with the same arguments (`BraveDebloat -Preset Extreme`). See `packaging/README.md`.
+
+Manual install: download `BraveDebloater-vX.Y.Z.zip` from the Releases page, then extract it to a folder you control, such as `Downloads\BraveDebloater`. To verify the archive first, download `SHA256SUMS.txt` from the same release and compare it with:
+
+```powershell
+Get-FileHash .\BraveDebloater-vX.Y.Z.zip -Algorithm SHA256
+```
+
+Open PowerShell in the extracted folder and run the default dry-run:
 
 ```powershell
 .\Invoke-BraveDebloat.ps1
 ```
 
-Review the output before applying changes. To verify a release archive first, download `SHA256SUMS.txt` from the same release and compare it with:
-
-```powershell
-Get-FileHash .\BraveDebloater-vX.Y.Z.zip -Algorithm SHA256
-```
+Review the output before applying changes. If Windows PowerShell blocks local scripts (`Restricted` execution policy), allow them for your user once with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`; the installer prints this hint when it applies.
 
 ## Start Here
 
@@ -241,7 +261,7 @@ Preview lines show the current mode, and switching to a mode without templates a
 
 Use `-Customize` for an interactive yes/no prompt for each cleanup.
 
-Use `-IncludeFeature` and `-ExcludeFeature` for repeatable commands.
+Use `-IncludeFeature` and `-ExcludeFeature` for repeatable commands. Names can be separated by spaces or commas, so `-ExcludeFeature News,LeoAI` also works through `powershell -File`, scheduled tasks, and the `BraveDebloat.exe` launcher, where PowerShell hands the list over as one string.
 
 Use `-OnlyFeature` when you want exactly the named cleanups without starting from a preset.
 
@@ -314,11 +334,17 @@ See `ROADMAP.md` for planned safety, testing, release trust, user experience, an
 
 ## Releasing
 
-Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`. It reruns the project checks on Windows, Ubuntu, macOS, and Windows PowerShell 5.1 against the tagged commit, and only then confirms the tag matches `$ToolVersion` in `Invoke-BraveDebloat.ps1` and has a `## X.Y.Z - <date>` section in `CHANGELOG.md`, builds `BraveDebloater-vX.Y.Z.zip` from the tagged tree, writes `SHA256SUMS.txt`, and publishes the GitHub release with that changelog section as the notes.
+Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`. It reruns the project checks on Windows, Ubuntu, macOS, and Windows PowerShell 5.1 against the tagged commit and compiles `BraveDebloat.exe` from `packaging/launcher/BraveDebloat.cs`, and only then confirms the tag matches `$ToolVersion` in `Invoke-BraveDebloat.ps1` and has a `## X.Y.Z - <date>` section in `CHANGELOG.md`, builds `BraveDebloater-vX.Y.Z.zip` from the tagged tree and `BraveDebloater-vX.Y.Z-windows.zip` (same tree, flattened, plus the launcher), writes `SHA256SUMS.txt`, and publishes the GitHub release with that changelog section as the notes. It also stores ready-to-submit winget and Scoop manifests in the run's `package-manifests` artifact, and opens the winget-pkgs pull request when a `WINGET_TOKEN` secret exists.
 
 ```powershell
 git tag -a vX.Y.Z -m "BraveDebloater vX.Y.Z"
 git push origin vX.Y.Z
+```
+
+After the release is published, refresh the committed Scoop manifest (and the winget manifests, if you keep them in the repository) from the release checksums and commit the result:
+
+```powershell
+.\scripts\New-PackageManifests.ps1 -Version X.Y.Z
 ```
 
 To build checksums by hand, for example for a manually assembled archive:
