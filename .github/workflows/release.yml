@@ -236,7 +236,12 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 10
     env:
-      WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+      # Only used to decide which step runs; the token itself is exposed to the submit step alone.
+      HAS_WINGET_TOKEN: ${{ secrets.WINGET_TOKEN != '' }}
+      # Pinned wingetcreate release. Update the version and hash together from
+      # https://github.com/microsoft/winget-create/releases (wingetcreate.exe.txt holds the SHA256).
+      WINGETCREATE_VERSION: v1.12.13.0
+      WINGETCREATE_SHA256: 24042bd37915805615e6cf969ac57c6439124c3fe85823327f5f3fb24bd9ffea
     steps:
       - name: Download package manifests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -245,18 +250,37 @@ jobs:
           path: package-manifests
 
       - name: Explain the manual path when no token is configured
-        if: env.WINGET_CREATE_GITHUB_TOKEN == ''
+        if: env.HAS_WINGET_TOKEN != 'true'
         shell: pwsh
         run: |
           Write-Host '::notice::WINGET_TOKEN is not set, so the winget-pkgs pull request was not opened. Download the package-manifests artifact of this run and run: wingetcreate submit --prtitle "New version: osfv.BraveDebloater version ${{ needs.publish.outputs.version }}" winget/o/osfv/BraveDebloater/${{ needs.publish.outputs.version }}'
 
-      - name: Submit to microsoft/winget-pkgs
-        if: env.WINGET_CREATE_GITHUB_TOKEN != ''
+      - name: Download and verify the pinned wingetcreate release
+        if: env.HAS_WINGET_TOKEN == 'true'
         shell: pwsh
+        run: |
+          $url = "https://github.com/microsoft/winget-create/releases/download/$env:WINGETCREATE_VERSION/wingetcreate.exe"
+          Invoke-WebRequest -Uri $url -OutFile wingetcreate.exe
+          $actual = (Get-FileHash -LiteralPath wingetcreate.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $env:WINGETCREATE_SHA256.ToLowerInvariant()) {
+            Remove-Item wingetcreate.exe -Force
+            throw "wingetcreate.exe from $url hashed to $actual, expected $env:WINGETCREATE_SHA256. Not running it."
+          }
+          $signature = Get-AuthenticodeSignature -LiteralPath wingetcreate.exe
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+            Remove-Item wingetcreate.exe -Force
+            throw "wingetcreate.exe Authenticode signature is $($signature.Status) (signer: $($signature.SignerCertificate.Subject)). Not running it."
+          }
+          Write-Host "wingetcreate $env:WINGETCREATE_VERSION verified: SHA256 $actual, signed by $($signature.SignerCertificate.Subject)"
+
+      - name: Submit to microsoft/winget-pkgs
+        if: env.HAS_WINGET_TOKEN == 'true'
+        shell: pwsh
+        env:
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
         run: |
           $version = '${{ needs.publish.outputs.version }}'
           $manifestDirectory = "package-manifests/winget/o/osfv/BraveDebloater/$version"
           if (-not (Test-Path $manifestDirectory)) { throw "Missing winget manifests at $manifestDirectory." }
-          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
           ./wingetcreate.exe submit --prtitle "New version: osfv.BraveDebloater version $version" $manifestDirectory
           if ($LASTEXITCODE -ne 0) { throw "wingetcreate submit exited with $LASTEXITCODE." }
