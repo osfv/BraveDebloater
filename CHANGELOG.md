@@ -21,6 +21,7 @@
 - `scripts/Test-PolicyManifest.ps1` parses every `.ps1` file under `src/`, `scripts/`, and `tests/` for syntax errors, not only the entrypoint.
 - `-Doctor -PolicyPath` on Linux reports the selected file once instead of also scanning the default path.
 - Recorded Brave policy template `153.1.97.22`. No policy was added, removed, or retyped.
+- Added `.github/workflows/release.yml`: pushing a `vX.Y.Z` tag reruns the checks on Windows, Ubuntu, macOS, and Windows PowerShell 5.1 against the tagged commit, then verifies the tag against `$ToolVersion` and `CHANGELOG.md`, and publishes the release archive, `SHA256SUMS.txt`, and notes automatically.
 
 ## 0.3.0 - 2026-09-03
 

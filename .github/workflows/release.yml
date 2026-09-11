@@ -1,0 +1,157 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+jobs:
+  # The same checks as CI run against the tagged commit itself, so a tag pushed before CI
+  # finished, or on a commit that never went through a PR, cannot publish an unverified release.
+  validate:
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Validate manifest and script syntax
+        shell: pwsh
+        run: ./scripts/Test-PolicyManifest.ps1
+
+      - name: Validate behavior
+        shell: pwsh
+        run: ./scripts/Test-Behavior.ps1
+
+      - name: Install PowerShell test tools
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -SkipPublisherCheck
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: Invoke-Pester -Path ./tests -CI
+
+      - name: Dry-run the Extreme preset
+        shell: pwsh
+        run: ./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields
+
+  windows-powershell:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Validate Windows PowerShell 5.1 compatibility
+        shell: powershell
+        run: |
+          ./scripts/Test-PolicyManifest.ps1
+          ./scripts/Test-Behavior.ps1
+          ./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields
+
+  publish:
+    needs:
+      - validate
+      - windows-powershell
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag matches the tool version and changelog
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $toolVersion = (Select-String -Path ./Invoke-BraveDebloat.ps1 -Pattern "^\`$ToolVersion = '([^']+)'").Matches[0].Groups[1].Value
+          if ($toolVersion -ne $version) {
+            throw "Tag v$version does not match `$ToolVersion '$toolVersion' in Invoke-BraveDebloat.ps1. Bump the version, then move the tag."
+          }
+          if (-not (Select-String -Path ./CHANGELOG.md -Pattern "^## $([regex]::Escape($version)) - " -Quiet)) {
+            throw "CHANGELOG.md has no '## $version - <date>' section. Add the release notes, then move the tag."
+          }
+
+      - name: Build release archive and checksums
+        shell: pwsh
+        run: |
+          $name = "BraveDebloater-${env:GITHUB_REF_NAME}"
+          git archive --format=zip --prefix="$name/" -o "$name.zip" $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE -ne 0) { throw 'git archive failed.' }
+          ./scripts/New-ReleaseChecksums.ps1 -Path "$name.zip" -OutputPath SHA256SUMS.txt
+          Get-Content SHA256SUMS.txt
+
+      - name: Write release notes from CHANGELOG.md
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $version = $tag.TrimStart('v')
+          $lines = Get-Content ./CHANGELOG.md
+          $section = New-Object System.Collections.Generic.List[string]
+          $inSection = $false
+          foreach ($line in $lines) {
+            if ($line -match '^## ') {
+              if ($inSection) { break }
+              $inSection = $line -match "^## $([regex]::Escape($version)) - "
+              continue
+            }
+            if ($inSection) { [void]$section.Add($line) }
+          }
+          $body = ($section -join "`n").Trim()
+          if ([string]::IsNullOrWhiteSpace($body)) { throw "CHANGELOG.md section for $version is empty." }
+
+          $previousTag = (git describe --tags --abbrev=0 "$tag^" 2>$null)
+          $compare = if ($previousTag) { "**Full Changelog**: https://github.com/${env:GITHUB_REPOSITORY}/compare/$previousTag...$tag" } else { '' }
+
+          @(
+            "## What's Changed"
+            ''
+            $body
+            ''
+            '## Validation'
+            ''
+            'Run against this tag before publishing, on Windows, Ubuntu, and macOS:'
+            ''
+            '- `./scripts/Test-PolicyManifest.ps1`'
+            '- `./scripts/Test-Behavior.ps1`'
+            '- `Invoke-Pester -Path ./tests`'
+            '- `./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields`'
+            '- Windows PowerShell 5.1 compatibility checks'
+            ''
+            '## Verify the download'
+            ''
+            'Compare the archive hash with `SHA256SUMS.txt`:'
+            ''
+            '```powershell'
+            "Get-FileHash .\BraveDebloater-$tag.zip -Algorithm SHA256"
+            '```'
+            ''
+            $compare
+          ) -join "`n" | Set-Content -Path RELEASE_NOTES.md -Encoding utf8
+          Get-Content RELEASE_NOTES.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file RELEASE_NOTES.md \
+            --verify-tag \
+            "BraveDebloater-$GITHUB_REF_NAME.zip" SHA256SUMS.txt
