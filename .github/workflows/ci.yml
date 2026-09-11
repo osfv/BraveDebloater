@@ -46,7 +46,7 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          $results = foreach ($path in @('./Invoke-BraveDebloat.ps1', './scripts', './src')) {
+          $results = foreach ($path in @('./Invoke-BraveDebloat.ps1', './install.ps1', './scripts', './src')) {
             Invoke-ScriptAnalyzer -Path $path -Recurse -Severity Error
           }
           if ($results) {
@@ -57,6 +57,19 @@ jobs:
       - name: Dry-run extreme preset
         shell: pwsh
         run: ./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields
+
+      - name: Build and smoke test the BraveDebloat.exe launcher
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/Build-Launcher.ps1 -Version 0.0.0 -OutputPath ./BraveDebloat.exe
+          $output = (./BraveDebloat.exe -Version 2>&1 | Out-String -Width 4096)
+          if ($LASTEXITCODE -ne 0 -or -not $output.Contains('BraveDebloater ')) { throw "BraveDebloat.exe -Version failed ($LASTEXITCODE): $output" }
+          $listOutput = (./BraveDebloat.exe -Preset Extreme -ExcludeFeature News,LeoAI -List 2>&1 | Out-String -Width 4096)
+          if ($LASTEXITCODE -ne 0 -or $listOutput.Contains('BraveNewsDisabled')) { throw "Comma-separated -ExcludeFeature did not pass through the launcher: $listOutput" }
+          ./BraveDebloat.exe -Preset NotAPreset *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'BraveDebloat.exe returned 0 for a failing script run.' }
+          Remove-Item ./BraveDebloat.exe
 
   source-validation:
     runs-on: ubuntu-latest

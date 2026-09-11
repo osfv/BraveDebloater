@@ -277,6 +277,7 @@ foreach ($patch in @($manifest.profilePreferencePatches)) {
 
 $scriptFiles = New-Object System.Collections.Generic.List[string]
 [void]$scriptFiles.Add($scriptPath)
+[void]$scriptFiles.Add((Join-Path $root 'install.ps1'))
 foreach ($folder in @('src', 'scripts', 'tests')) {
     foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $root $folder) -Filter '*.ps1' -File | Sort-Object Name)) {
         [void]$scriptFiles.Add($file.FullName)
