@@ -76,14 +76,6 @@ function Get-BraveProfilePreferenceFiles {
     return $files.ToArray()
 }
 
-function Get-ProfileBackupDirectory {
-    param([Parameter(Mandatory = $true)][string]$BackupPath)
-
-    $backupDirectory = Split-Path -Parent (Get-FullFileSystemPath -Path $BackupPath)
-    $backupName = [System.IO.Path]::GetFileNameWithoutExtension($BackupPath)
-    return (Join-Path (Join-Path $backupDirectory 'profile-files') $backupName)
-}
-
 function Invoke-ProfilePreferenceCleanup {
     param(
         [string]$Root,

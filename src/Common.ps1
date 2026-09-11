@@ -96,6 +96,15 @@ function Get-Utf8FileContent {
     return [System.IO.File]::ReadAllText((Get-FullFileSystemPath -Path $Path), [System.Text.Encoding]::UTF8)
 }
 
+function Get-ProfileBackupDirectory {
+    param([Parameter(Mandatory = $true)][string]$BackupPath)
+
+    # Profile Preferences copies live in a folder named after their backup JSON so runs never share files.
+    $backupDirectory = Split-Path -Parent (Get-FullFileSystemPath -Path $BackupPath)
+    $backupName = [System.IO.Path]::GetFileNameWithoutExtension($BackupPath)
+    return (Join-Path (Join-Path $backupDirectory 'profile-files') $backupName)
+}
+
 function Get-JsonFileContent {
     param([Parameter(Mandatory = $true)][string]$Path)
 
