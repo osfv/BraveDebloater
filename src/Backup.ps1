@@ -31,12 +31,16 @@ function Assert-BackupRegistryPath {
         }
     }
 
-    if (-not $isTargetUserPolicyPath -and $allowedPaths -notcontains $RegistryPath -and $RegistryPath -ne $AllowedPolicyPath) {
+    if (-not $isTargetUserPolicyPath -and $allowedPaths -notcontains $RegistryPath -and -not (Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath $AllowedPolicyPath)) {
         throw "Backup contains untrusted registry path '$RegistryPath'. Restore stopped before writing anything."
     }
 
     if ($DoApply -and $RegistryPath -ieq 'Registry::HKEY_LOCAL_MACHINE\Software\Policies\BraveSoftware\Brave' -and -not (Test-IsAdministrator)) {
         throw 'Restoring a LocalMachine backup needs an elevated PowerShell session. Reopen PowerShell as administrator/root, then rerun the restore command.'
+    }
+
+    if ($DoApply -and $RegistryPath -eq '/etc/brave/policies/managed/BraveDebloater.json' -and -not (Test-IsAdministrator)) {
+        throw "Restoring the Linux managed policy file '$RegistryPath' needs root. Rerun the restore command with sudo."
     }
 
     if ($DoApply -and $isTargetUserPolicyPath) {
@@ -50,6 +54,59 @@ function Assert-BackupRegistryPath {
 
     if ($DoApply -and $RegistryPath -eq '/Library/Managed Preferences/com.brave.Browser.plist' -and -not (Test-IsAdministrator)) {
         throw "Restoring a macOS managed-preferences backup writes to '$RegistryPath' and needs root. Rerun the restore command with sudo."
+    }
+}
+
+function Test-AllowedPolicyPathMatches {
+    param(
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [string]$AllowedPolicyPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($AllowedPolicyPath)) {
+        return $false
+    }
+    if ($RegistryPath -eq $AllowedPolicyPath) {
+        return $true
+    }
+
+    # Older backups may record the -PolicyPath exactly as typed (for example a relative path).
+    # Compare the resolved filesystem paths too, but never for registry keys or defaults domains.
+    if (-not (Test-ManagedPolicyPath -Path $RegistryPath) -or -not (Test-ManagedPolicyPath -Path $AllowedPolicyPath)) {
+        return $false
+    }
+
+    try {
+        return ((Get-FullFileSystemPath -Path $RegistryPath) -eq (Get-FullFileSystemPath -Path $AllowedPolicyPath))
+    }
+    catch {
+        return $false
+    }
+}
+
+function Assert-BackupPolicyKind {
+    param(
+        [Parameter(Mandatory = $true)]$Backup,
+        [Parameter(Mandatory = $true)][string]$RegistryPath
+    )
+
+    $kind = 'Registry'
+    if ($null -ne $Backup.PSObject.Properties['policyKind']) {
+        $kind = [string]$Backup.policyKind
+    }
+
+    # The kind decides which writer runs, so it must agree with the recorded path. Otherwise a
+    # tampered backup could turn a registry key name into a file written under the working directory.
+    $consistent = switch ($kind) {
+        'Registry' { $RegistryPath -like 'Registry::HKEY_*' }
+        'JsonFile' { Test-ManagedPolicyPath -Path $RegistryPath }
+        'MacOSPlist' { Test-ManagedPolicyPath -Path $RegistryPath }
+        'MacOSDefaults' { $RegistryPath -eq 'com.brave.Browser' }
+        default { throw "Backup has unsupported policy kind '$kind'. Restore stopped before writing anything." }
+    }
+
+    if (-not $consistent) {
+        throw "Backup policy kind '$kind' does not match its policy path '$RegistryPath'. Restore stopped before writing anything."
     }
 }
 
@@ -144,6 +201,7 @@ function Assert-BackupObject {
 
     $registryPath = [string](Get-RequiredPropertyValue -Object $Backup -Name 'registryPath' -Context 'Backup')
     Assert-BackupRegistryPath -RegistryPath $registryPath -AllowedPolicyPath $AllowedPolicyPath -AllowedUserPolicyPath $AllowedUserPolicyPath -DoApply:$DoApply
+    Assert-BackupPolicyKind -Backup $Backup -RegistryPath $registryPath
 
     $policyDefinitions = Get-ManifestMap -Object $Manifest.policies
     Assert-BackupPolicyList -Backup $Backup -PolicyDefinitions $policyDefinitions -DeprecatedPolicyNames @(Get-DeprecatedPolicyNames -Manifest $Manifest)
@@ -222,7 +280,9 @@ function Invoke-BackupRetention {
         return
     }
 
+    $profileBackupDirectory = Join-Path (Get-FullFileSystemPath -Path $Directory) 'profile-files'
     foreach ($file in $remove) {
+        $profileBackupFiles = @(Get-BackupProfileFilePaths -BackupPath $file.FullName -ProfileBackupDirectory $profileBackupDirectory)
         if ($DoApply) {
             try {
                 Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop
@@ -230,11 +290,78 @@ function Invoke-BackupRetention {
             }
             catch {
                 Write-Warning ("Failed to remove backup {0}: {1}" -f $file.Name, $_.Exception.Message)
+                continue
+            }
+
+            foreach ($profileBackupFile in $profileBackupFiles) {
+                try {
+                    Remove-Item -LiteralPath $profileBackupFile -Force -ErrorAction Stop
+                    Write-Step "Removed profile backup $(Split-Path -Leaf $profileBackupFile)."
+                }
+                catch {
+                    Write-Warning ("Failed to remove profile backup {0}: {1}" -f $profileBackupFile, $_.Exception.Message)
+                }
+            }
+            if ($profileBackupFiles.Count -gt 0) {
+                Remove-EmptyProfileBackupDirectory -Path (Split-Path -Parent $profileBackupFiles[0]) -ProfileBackupDirectory $profileBackupDirectory
             }
         }
         else {
             Write-DryRun "Would remove backup $($file.Name). Add -Apply to delete it."
+            foreach ($profileBackupFile in $profileBackupFiles) {
+                Write-DryRun "Would remove profile backup $(Split-Path -Leaf $profileBackupFile) that belongs to it."
+            }
         }
+    }
+}
+
+function Get-BackupProfileFilePaths {
+    param(
+        [Parameter(Mandatory = $true)][string]$BackupPath,
+        [Parameter(Mandatory = $true)][string]$ProfileBackupDirectory
+    )
+
+    # Only files that live beside the backup under profile-files/ are ever removed with it.
+    $paths = New-Object System.Collections.Generic.List[string]
+    try {
+        $backup = Get-JsonFileContent -Path $BackupPath
+    }
+    catch {
+        return $paths.ToArray()
+    }
+
+    if ($null -eq $backup -or $null -eq $backup.PSObject.Properties['profileFiles']) {
+        return $paths.ToArray()
+    }
+
+    foreach ($profileFile in @($backup.profileFiles)) {
+        if ($null -eq $profileFile -or $null -eq $profileFile.PSObject.Properties['backupPath']) {
+            continue
+        }
+        $candidate = [string]$profileFile.backupPath
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        if ((Test-PathIsUnderDirectory -Path $candidate -Directory $ProfileBackupDirectory) -and (Test-Path -LiteralPath $candidate)) {
+            Add-StringIfMissing -List $paths -Value (Get-FullFileSystemPath -Path $candidate)
+        }
+    }
+
+    return $paths.ToArray()
+}
+
+function Remove-EmptyProfileBackupDirectory {
+    param(
+        [string]$Path,
+        [Parameter(Mandatory = $true)][string]$ProfileBackupDirectory
+    )
+
+    # Per-backup folders under profile-files/ are removed once empty; profile-files/ itself stays.
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-PathIsUnderDirectory -Path $Path -Directory $ProfileBackupDirectory)) {
+        return
+    }
+    if ((Test-Path -LiteralPath $Path) -and @(Get-ChildItem -LiteralPath $Path -Force).Count -eq 0) {
+        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -262,9 +389,7 @@ function New-Backup {
     )
 
     $Directory = Get-FullFileSystemPath -Path $Directory
-    if (-not (Test-Path -LiteralPath $Directory)) {
-        New-Item -ItemType Directory -Path $Directory -Force | Out-Null
-    }
+    New-DirectoryLiteral -Path $Directory
 
     $path = New-BackupPath -Directory $Directory
     $backup = [ordered]@{
@@ -364,7 +489,7 @@ function Restore-RegistryBackup {
         if ($existed) {
             $kind = [string]$policy.kind
             $value = $policy.value
-            $definition = [pscustomobject]@{ type = $kind; value = $value }
+            $definition = [pscustomobject]@{ type = $kind; value = $value; preserveValueType = $true }
             Set-PolicyValue -Target $policyTarget -Name $name -Definition $definition
             Write-Step "Restored $name."
         }
@@ -384,11 +509,7 @@ function Restore-RegistryBackup {
         }
 
         if (Test-Path -LiteralPath $source) {
-            $targetDirectory = Split-Path -Parent $target
-            if (-not (Test-Path -LiteralPath $targetDirectory)) {
-                New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
-            }
-            Copy-Item -LiteralPath $source -Destination $target -Force
+            Copy-FileLiteral -SourcePath $source -DestinationPath $target
             Write-Step "Restored profile file $target."
         }
         else {

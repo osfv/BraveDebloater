@@ -676,6 +676,283 @@ try {
         throw 'Profile restore did not bring back the original Preferences content.'
     }
 
+    $versionOutput = (& $scriptPath -Version *>&1 | Out-String)
+    Assert-TextContains -Text $versionOutput -Expected 'BraveDebloater 0.4.0' -Context '-Version output'
+    Assert-TextContains -Text $versionOutput -Expected 'Policy template version: 153.1.97.22' -Context '-Version output'
+    Assert-TextContains -Text $versionOutput -Expected 'PowerShell: ' -Context '-Version output'
+    Assert-TextDoesNotContain -Text $versionOutput -Unexpected '[dry-run]' -Context '-Version output'
+
+    function Test-RegFileStringEscaping {
+        . (Join-Path $root 'src/Common.ps1')
+        . (Join-Path $root 'src/PlatformPolicy.ps1')
+
+        $payload = [ordered]@{ Sample = 'C:\Brave "quoted"'; Flag = $true; Level = 2 }
+        return (ConvertTo-RegFileDocument -RegistryPath 'Registry::HKEY_CURRENT_USER\Software\Policies\BraveSoftware\Brave' -Payload $payload)
+    }
+    $regDocument = Test-RegFileStringEscaping
+    Assert-TextContains -Text $regDocument -Expected '"Sample"="C:\\Brave \"quoted\""' -Context '.reg string escaping'
+    Assert-TextDoesNotContain -Text $regDocument -Unexpected '\\\\' -Context '.reg string escaping'
+    Assert-TextContains -Text $regDocument -Expected '"Flag"=dword:00000001' -Context '.reg boolean value'
+    Assert-TextContains -Text $regDocument -Expected '"Level"=dword:00000002' -Context '.reg integer value'
+
+    # Two apply runs against the same profile must keep two distinct Preferences copies so the
+    # first backup still restores the original content.
+    $collisionProfileRoot = Join-Path $tempRoot 'CollisionProfileRoot'
+    $collisionProfileDirectory = Join-Path $collisionProfileRoot 'Default'
+    New-Item -ItemType Directory -Path $collisionProfileDirectory -Force | Out-Null
+    $collisionPreferences = Join-Path $collisionProfileDirectory 'Preferences'
+    [System.IO.File]::WriteAllText($collisionPreferences, '{"brave":{"rewards":{"enabled":true}}}', $utf8NoBom)
+    $collisionPolicyPath = Join-Path $tempRoot 'collision-policy.json'
+    $collisionBackupDirectory = Join-Path $tempRoot 'CollisionBackups'
+    & $scriptPath -Platform Linux -PolicyPath $collisionPolicyPath -OnlyFeature Rewards -IncludeProfilePreferences -ProfileRoot $collisionProfileRoot -BackupDirectory $collisionBackupDirectory -Apply *>&1 | Out-Null
+    $firstCollisionBackup = @(Get-ChildItem -LiteralPath $collisionBackupDirectory -Filter 'BraveDebloater-*.json')[0]
+    Start-Sleep -Milliseconds 1200
+    [System.IO.File]::WriteAllText($collisionPreferences, '{"brave":{"rewards":{"enabled":true}},"marker":"second-run"}', $utf8NoBom)
+    & $scriptPath -Platform Linux -PolicyPath $collisionPolicyPath -OnlyFeature Rewards -IncludeProfilePreferences -ProfileRoot $collisionProfileRoot -BackupDirectory $collisionBackupDirectory -Apply *>&1 | Out-Null
+    $collisionBackups = @(Get-ChildItem -LiteralPath $collisionBackupDirectory -Filter 'BraveDebloater-*.json' | Sort-Object LastWriteTime)
+    if ($collisionBackups.Count -ne 2) {
+        throw "Expected 2 backups after two profile apply runs, found $($collisionBackups.Count)."
+    }
+    $firstCollisionJson = Get-Content -LiteralPath $firstCollisionBackup.FullName -Raw | ConvertFrom-Json
+    $secondCollisionJson = Get-Content -LiteralPath ($collisionBackups | Where-Object { $_.Name -ne $firstCollisionBackup.Name } | Select-Object -First 1).FullName -Raw | ConvertFrom-Json
+    $firstProfileBackup = [string]@($firstCollisionJson.profileFiles)[0].backupPath
+    $secondProfileBackup = [string]@($secondCollisionJson.profileFiles)[0].backupPath
+    if ($firstProfileBackup -eq $secondProfileBackup) {
+        throw 'Two apply runs shared the same profile Preferences backup file.'
+    }
+    if (-not (Test-Path -LiteralPath $firstProfileBackup) -or -not (Test-Path -LiteralPath $secondProfileBackup)) {
+        throw 'A profile Preferences backup file is missing after two apply runs.'
+    }
+    Assert-TextDoesNotContain -Text ([System.IO.File]::ReadAllText($firstProfileBackup, $utf8NoBom)) -Unexpected 'second-run' -Context 'first profile backup content'
+    Assert-TextContains -Text ([System.IO.File]::ReadAllText($secondProfileBackup, $utf8NoBom)) -Expected 'second-run' -Context 'second profile backup content'
+    $firstRestoreOutput = (& $scriptPath -UndoFromBackup $firstCollisionBackup.FullName -PolicyPath $collisionPolicyPath -ProfileRoot $collisionProfileRoot -Apply *>&1 | Out-String)
+    Assert-TextContains -Text $firstRestoreOutput -Expected 'Restored profile file' -Context 'first backup restore output'
+    $restoredCollisionText = [System.IO.File]::ReadAllText($collisionPreferences, $utf8NoBom)
+    Assert-TextDoesNotContain -Text $restoredCollisionText -Unexpected 'second-run' -Context 'restored Preferences from first backup'
+    if (($restoredCollisionText | ConvertFrom-Json).brave.rewards.enabled -ne $true) {
+        throw 'Restoring the first backup did not bring back the original Rewards preference.'
+    }
+
+    # Pruning a backup also removes the profile Preferences copies that belong only to it.
+    $collisionPrunePreview = (& $scriptPath -BackupDirectory $collisionBackupDirectory -KeepLatestBackups 1 *>&1 | Out-String)
+    Assert-TextContains -Text $collisionPrunePreview -Expected "Would remove backup $($firstCollisionBackup.Name)" -Context 'profile backup prune preview'
+    Assert-TextContains -Text $collisionPrunePreview -Expected 'Would remove profile backup' -Context 'profile backup prune preview'
+    if (-not (Test-Path -LiteralPath $firstProfileBackup)) {
+        throw 'Backup prune preview deleted a profile Preferences backup.'
+    }
+    $collisionPruneApply = (& $scriptPath -BackupDirectory $collisionBackupDirectory -KeepLatestBackups 1 -Apply *>&1 | Out-String)
+    Assert-TextContains -Text $collisionPruneApply -Expected "Removed backup $($firstCollisionBackup.Name)." -Context 'profile backup prune apply'
+    Assert-TextContains -Text $collisionPruneApply -Expected 'Removed profile backup' -Context 'profile backup prune apply'
+    if (Test-Path -LiteralPath $firstProfileBackup) {
+        throw 'Backup prune did not remove the pruned backup profile Preferences copy.'
+    }
+    if (Test-Path -LiteralPath (Split-Path -Parent $firstProfileBackup)) {
+        throw 'Backup prune left an empty per-backup profile-files folder behind.'
+    }
+    if (-not (Test-Path -LiteralPath $secondProfileBackup)) {
+        throw 'Backup prune removed a profile Preferences copy that belongs to a kept backup.'
+    }
+
+    # Profile paths with wildcard characters must be handled literally on every PowerShell version.
+    $bracketProfileRoot = Join-Path $tempRoot 'Bracket [Profile] Root'
+    $bracketProfileDirectory = Join-Path $bracketProfileRoot 'Profile [1]'
+    [System.IO.Directory]::CreateDirectory($bracketProfileDirectory) | Out-Null
+    $bracketPreferences = Join-Path $bracketProfileDirectory 'Preferences'
+    [System.IO.File]::WriteAllText($bracketPreferences, '{"brave":{"rewards":{"enabled":true}}}', $utf8NoBom)
+    $bracketPolicyPath = Join-Path (Join-Path $tempRoot 'Bracket [Policies]') 'brave-policy.json'
+    $bracketBackupDirectory = Join-Path $tempRoot 'Bracket [Backups]'
+    $bracketApplyOutput = (& $scriptPath -Platform Linux -PolicyPath $bracketPolicyPath -OnlyFeature Rewards -IncludeProfilePreferences -ProfileRoot $bracketProfileRoot -BackupDirectory $bracketBackupDirectory -Apply *>&1 | Out-String)
+    Assert-TextContains -Text $bracketApplyOutput -Expected 'Updated profile preferences in' -Context 'bracket path apply output'
+    if (-not (Test-Path -LiteralPath $bracketPolicyPath)) {
+        throw 'Apply did not create the policy JSON file under a bracket path.'
+    }
+    if (([System.IO.File]::ReadAllText($bracketPreferences, $utf8NoBom) | ConvertFrom-Json).brave.rewards.enabled -ne $false) {
+        throw 'Profile preference cleanup did not patch a Preferences file under a bracket path.'
+    }
+    $bracketBackup = @(Get-ChildItem -LiteralPath $bracketBackupDirectory -Filter 'BraveDebloater-*.json')[0].FullName
+    $bracketBackupJson = Get-Content -LiteralPath $bracketBackup -Raw | ConvertFrom-Json
+    if (-not (Test-Path -LiteralPath ([string]@($bracketBackupJson.profileFiles)[0].backupPath))) {
+        throw 'Profile Preferences backup copy is missing for a bracket path.'
+    }
+    $bracketRestoreOutput = (& $scriptPath -UndoFromBackup $bracketBackup -PolicyPath $bracketPolicyPath -ProfileRoot $bracketProfileRoot -Apply *>&1 | Out-String)
+    Assert-TextContains -Text $bracketRestoreOutput -Expected 'Restored profile file' -Context 'bracket path restore output'
+    if (([System.IO.File]::ReadAllText($bracketPreferences, $utf8NoBom) | ConvertFrom-Json).brave.rewards.enabled -ne $true) {
+        throw 'Restore did not bring back the original Preferences under a bracket path.'
+    }
+
+    # Restore refuses a backup whose policy kind does not match its recorded path.
+    $kindMismatchBackup = Join-Path $tempRoot 'kind-mismatch-backup.json'
+    [ordered]@{
+        schemaVersion = 1
+        platform = 'Linux'
+        policyKind = 'JsonFile'
+        registryPath = 'Registry::HKEY_CURRENT_USER\Software\Policies\BraveSoftware\Brave'
+        policies = @()
+        profileFiles = @()
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $kindMismatchBackup -Encoding UTF8
+    $kindMismatchRejected = $false
+    try {
+        & $scriptPath -UndoFromBackup $kindMismatchBackup | Out-Null
+    }
+    catch {
+        $kindMismatchRejected = $_.Exception.Message -match 'does not match its policy path'
+    }
+    if (-not $kindMismatchRejected) {
+        throw 'Restore accepted a backup whose policy kind does not match its path.'
+    }
+    if (Test-Path -LiteralPath (Join-Path (Get-Location).Path 'HKEY_CURRENT_USER')) {
+        throw 'Restore wrote a registry-named file into the working directory.'
+    }
+
+    $unknownKindBackup = Join-Path $tempRoot 'unknown-kind-backup.json'
+    [ordered]@{
+        schemaVersion = 1
+        policyKind = 'Mystery'
+        registryPath = 'Registry::HKEY_CURRENT_USER\Software\Policies\BraveSoftware\Brave'
+        policies = @()
+        profileFiles = @()
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $unknownKindBackup -Encoding UTF8
+    $unknownKindRejected = $false
+    try {
+        & $scriptPath -UndoFromBackup $unknownKindBackup | Out-Null
+    }
+    catch {
+        $unknownKindRejected = $_.Exception.Message -match 'unsupported policy kind'
+    }
+    if (-not $unknownKindRejected) {
+        throw 'Restore accepted a backup with an unknown policy kind.'
+    }
+
+    function Test-UnelevatedLinuxDefaultRestore {
+        . (Join-Path $root 'src/Common.ps1')
+        . (Join-Path $root 'src/PlatformPolicy.ps1')
+        . (Join-Path $root 'src/Backup.ps1')
+        function Test-IsAdministrator { return $false }
+
+        try {
+            Assert-BackupRegistryPath -RegistryPath '/etc/brave/policies/managed/BraveDebloater.json' -DoApply
+        }
+        catch {
+            return ($_.Exception.Message -match 'needs root')
+        }
+
+        return $false
+    }
+    if (-not (Test-UnelevatedLinuxDefaultRestore)) {
+        throw 'Restoring the Linux default policy file did not require root.'
+    }
+
+    # Previews annotate each policy with its current state when the target is readable.
+    $statePolicyPath = Join-Path $tempRoot 'state-policy.json'
+    [ordered]@{
+        BraveRewardsDisabled = $true
+        BraveWalletDisabled = $false
+    } | ConvertTo-Json | Set-Content -LiteralPath $statePolicyPath -Encoding UTF8
+    $stateOutput = (& $scriptPath -Platform Linux -PolicyPath $statePolicyPath -OnlyFeature Rewards,Wallet,VPN *>&1 | Out-String)
+    Assert-TextContains -Text $stateOutput -Expected 'Would set BraveRewardsDisabled = 1' -Context 'state annotation output'
+    Assert-TextContains -Text $stateOutput -Expected 'Already set, no change.' -Context 'state annotation output'
+    Assert-TextContains -Text $stateOutput -Expected 'Would set BraveWalletDisabled = 1' -Context 'state annotation output'
+    Assert-TextContains -Text $stateOutput -Expected 'Currently 0.' -Context 'state annotation output'
+    Assert-TextContains -Text $stateOutput -Expected 'Would set BraveVPNDisabled = 1' -Context 'state annotation output'
+    Assert-TextContains -Text $stateOutput -Expected 'Currently not set.' -Context 'state annotation output'
+    Assert-TextContains -Text $stateOutput -Expected '3 policy value(s) planned (1 already set)' -Context 'state annotation summary'
+    Assert-TextDoesNotContain -Text $malformedDryRunOutput -Unexpected 'Currently' -Context 'malformed policy file state annotations'
+
+    # Restores write managed values back with their recorded JSON type: an integer policy that was
+    # 0 must not come back as `false`, and a boolean policy must stay a boolean.
+    $typePolicyPath = Join-Path $tempRoot 'type-policy.json'
+    $typeBackupDirectory = Join-Path $tempRoot 'TypeBackups'
+    [System.IO.File]::WriteAllText($typePolicyPath, '{"BraveRewardsDisabled":false,"NetworkPredictionOptions":0}', $utf8NoBom)
+    $typeDryRun = (& $scriptPath -Platform Linux -PolicyPath $typePolicyPath -OnlyFeature Rewards,NetworkPrediction *>&1 | Out-String)
+    Assert-TextContains -Text $typeDryRun -Expected 'Would set NetworkPredictionOptions = 2 (Disable network prediction and preconnect.) Currently 0.' -Context 'integer policy state annotation'
+    & $scriptPath -Platform Linux -PolicyPath $typePolicyPath -OnlyFeature Rewards,NetworkPrediction -BackupDirectory $typeBackupDirectory -Apply *>&1 | Out-Null
+    $typeAppliedJson = Get-Content -LiteralPath $typePolicyPath -Raw | ConvertFrom-Json
+    if ($typeAppliedJson.BraveRewardsDisabled -isnot [bool] -or $typeAppliedJson.NetworkPredictionOptions -is [bool] -or [int]$typeAppliedJson.NetworkPredictionOptions -ne 2) {
+        throw 'Apply did not write BraveRewardsDisabled as a boolean and NetworkPredictionOptions as the integer 2.'
+    }
+    $typeBackup = @(Get-ChildItem -LiteralPath $typeBackupDirectory -Filter 'BraveDebloater-*.json')[0].FullName
+    & $scriptPath -UndoFromBackup $typeBackup -PolicyPath $typePolicyPath -Apply *>&1 | Out-Null
+    $typeRestoredJson = Get-Content -LiteralPath $typePolicyPath -Raw | ConvertFrom-Json
+    if ($typeRestoredJson.BraveRewardsDisabled -isnot [bool] -or $typeRestoredJson.BraveRewardsDisabled) {
+        throw 'Restore did not bring BraveRewardsDisabled back to boolean false.'
+    }
+    if ($typeRestoredJson.NetworkPredictionOptions -is [bool] -or [int]$typeRestoredJson.NetworkPredictionOptions -ne 0) {
+        throw "Restore wrote NetworkPredictionOptions as '$($typeRestoredJson.NetworkPredictionOptions)' instead of the integer 0."
+    }
+
+    # The profile preference hint appears only when a selected feature has profile patches.
+    Assert-TextContains -Text $onlyDryRunOutput -Expected 'Add -IncludeProfilePreferences' -Context 'profile preference hint'
+    $vpnOnlyOutput = (& $scriptPath -OnlyFeature VPN *>&1 | Out-String)
+    Assert-TextDoesNotContain -Text $vpnOnlyOutput -Unexpected 'Add -IncludeProfilePreferences' -Context 'profile preference hint for VPN'
+    Assert-TextDoesNotContain -Text $utf8ApplyOutput -Unexpected 'Add -IncludeProfilePreferences' -Context 'profile preference hint when included'
+
+    # A forced platform with no known profile root explains what to pass instead of printing an empty path.
+    $blankRootOutput = (& $scriptPath -Platform Windows -OnlyFeature Rewards -IncludeProfilePreferences *>&1 | Out-String)
+    Assert-TextContains -Text $blankRootOutput -Expected 'No Brave profile root is known for this platform' -Context 'blank profile root output'
+    Assert-TextContains -Text $blankRootOutput -Expected 'Dry-run complete.' -Context 'blank profile root output'
+
+    # Exports never write to the policy target, so -Apply is ignored instead of demanding elevation or MDM.
+    $androidApplyExportPath = Join-Path $tempRoot 'brave-android-apply-export.json'
+    $androidApplyExportOutput = (& $scriptPath -Platform Android -OnlyFeature Rewards -Apply -ExportPolicyPath $androidApplyExportPath *>&1 | Out-String)
+    Assert-TextContains -Text $androidApplyExportOutput -Expected '-Apply was ignored' -Context 'Android export with -Apply output'
+    Assert-TextContains -Text $androidApplyExportOutput -Expected 'Exported 1 policy value(s) for Android' -Context 'Android export with -Apply output'
+    if (-not (Test-Path -LiteralPath $androidApplyExportPath)) {
+        throw 'Android export with -Apply did not write the export file.'
+    }
+    function Test-UnelevatedExportTarget {
+        . (Join-Path $root 'src/Common.ps1')
+        . (Join-Path $root 'src/PlatformPolicy.ps1')
+        function Test-IsAdministrator { return $false }
+
+        $writeRejected = $false
+        try {
+            Get-PolicyTarget -PlatformName Linux -ScopeName LocalMachine -OverridePath '' -Apply | Out-Null
+        }
+        catch {
+            $writeRejected = $_.Exception.Message -match 'need root'
+        }
+        if (-not $writeRejected) {
+            return $false
+        }
+
+        $target = Get-PolicyTarget -PlatformName Linux -ScopeName LocalMachine -OverridePath '' -ReadOnly
+        return ($target.Path -eq '/etc/brave/policies/managed/BraveDebloater.json')
+    }
+    if (-not (Test-UnelevatedExportTarget)) {
+        throw 'Unelevated target construction did not reject writes and allow read-only exports for the Linux default path.'
+    }
+
+    # A relative -PolicyPath resolves to the same full path for the target, backups, and restores.
+    $relativePolicyName = 'relative-policy.json'
+    $relativeBackupDirectory = Join-Path $tempRoot 'RelativeBackups'
+    Push-Location -LiteralPath $tempRoot
+    try {
+        $relativeApplyOutput = (& $scriptPath -Platform Linux -PolicyPath (Join-Path '.' $relativePolicyName) -OnlyFeature Rewards -BackupDirectory $relativeBackupDirectory -Apply *>&1 | Out-String)
+        Assert-TextContains -Text $relativeApplyOutput -Expected (Join-Path $tempRoot $relativePolicyName) -Context 'relative -PolicyPath apply output'
+        $relativeBackup = @(Get-ChildItem -LiteralPath $relativeBackupDirectory -Filter 'BraveDebloater-*.json')[0].FullName
+        $relativeBackupJson = Get-Content -LiteralPath $relativeBackup -Raw | ConvertFrom-Json
+        if ([string]$relativeBackupJson.registryPath -ne (Join-Path $tempRoot $relativePolicyName)) {
+            throw "Backup recorded '$($relativeBackupJson.registryPath)' instead of the full policy path."
+        }
+        $relativeRestoreOutput = (& $scriptPath -UndoFromBackup $relativeBackup -PolicyPath (Join-Path '.' $relativePolicyName) *>&1 | Out-String)
+        Assert-TextContains -Text $relativeRestoreOutput -Expected 'Would remove BraveRewardsDisabled' -Context 'relative -PolicyPath restore output'
+    }
+    finally {
+        Pop-Location
+    }
+
+    # Doctor reports the value kind of managed JSON entries from their JSON type.
+    $doctorKindPolicyPath = Join-Path $tempRoot 'doctor-kind-policy.json'
+    [ordered]@{
+        BraveRewardsDisabled = $true
+        HomepageLocation = 'https://example.invalid'
+    } | ConvertTo-Json | Set-Content -LiteralPath $doctorKindPolicyPath -Encoding UTF8
+    $doctorKindOutput = (& $scriptPath -Doctor -Platform Linux -PolicyPath $doctorKindPolicyPath -ProfileRoot $missingProfileRoot -BackupDirectory (Join-Path $tempRoot 'DoctorKindBackups') *>&1 | Out-String)
+    Assert-TextContains -Text $doctorKindOutput -Expected 'Unknown Brave policies: detected' -Context 'Doctor JSON kind output'
+    Assert-TextContains -Text $doctorKindOutput -Expected 'HomepageLocation' -Context 'Doctor JSON kind output'
+    Assert-TextContains -Text $doctorKindOutput -Expected 'String' -Context 'Doctor JSON kind output'
+    Assert-TextDoesNotContain -Text $doctorKindOutput -Unexpected 'CurrentUser policies:' -Context 'Doctor Linux -PolicyPath output'
+
     Write-Host 'Behavior checks passed.'
 }
 finally {

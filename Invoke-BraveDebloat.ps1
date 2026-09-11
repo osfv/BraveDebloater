@@ -54,11 +54,15 @@ param(
 
     [switch]$ListFeatures,
 
-    [switch]$NoBackup
+    [switch]$NoBackup,
+
+    [switch]$Version
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+$ToolVersion = '0.4.0'
 
 $ProjectRoot = if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
     Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -78,6 +82,12 @@ foreach ($moduleName in @('Common.ps1', 'Manifest.ps1', 'PlatformPolicy.ps1', 'B
 
 $manifest = Get-Manifest
 $platformName = Resolve-PlatformName -Name $Platform
+
+if ($Version) {
+    Show-VersionInfo -ToolVersion $ToolVersion -Manifest $manifest -PlatformName $platformName
+    return
+}
+
 $userSidSpecified = -not [string]::IsNullOrWhiteSpace($UserSid)
 if ($userSidSpecified) {
     Assert-UserSid -UserSid $UserSid
@@ -214,8 +224,13 @@ if ($List) {
 
 # Previews and exports never write to the policy target, so they must not demand elevation.
 # Only a real apply run performs the administrator/root and loaded-hive checks.
-$policyTarget = Get-PolicyTarget -PlatformName $platformName -ScopeName $Scope -OverridePath $PolicyPath -UserSid $UserSid -Apply:$applyChanges -ReadOnly:(-not $applyChanges)
-if ($policyTarget.Kind -eq 'MobileMDM' -and $applyChanges) {
+$exportRequested = -not [string]::IsNullOrWhiteSpace($ExportPolicyPath)
+if ($exportRequested -and $Apply) {
+    Write-Warning '-ExportPolicyPath only writes the export file. -Apply was ignored and the policy target was not changed.'
+}
+$writesPolicyTarget = $applyChanges -and -not $exportRequested
+$policyTarget = Get-PolicyTarget -PlatformName $platformName -ScopeName $Scope -OverridePath $PolicyPath -UserSid $UserSid -Apply:$writesPolicyTarget -ReadOnly:(-not $writesPolicyTarget)
+if ($policyTarget.Kind -eq 'MobileMDM' -and $writesPolicyTarget) {
     throw "$platformName policies require MDM deployment. This script can list or export the selected policies, but it cannot apply them on-device."
 }
 if (-not [string]::IsNullOrWhiteSpace($PolicyPath) -and $policyTarget.Kind -notin @('JsonFile', 'MacOSPlist')) {
@@ -226,7 +241,7 @@ if (-not [string]::IsNullOrWhiteSpace($PolicyPath) -and $policyTarget.Kind -noti
 # preview never implies on-device support for policies Brave's mobile MDM cannot accept.
 Assert-MobilePolicySupport -PlatformName $platformName -PolicyNames $policyNames.ToArray() -Manifest $manifest
 
-if (-not [string]::IsNullOrWhiteSpace($ExportPolicyPath)) {
+if ($exportRequested) {
     $payload = Get-PolicyPayload -PolicyNames $policyNames.ToArray() -PolicyDefinitions $policyDefinitions
     $exportFormat = Export-PolicyPayload -Target $policyTarget -Payload $payload -Path $ExportPolicyPath
     $exportHint = switch ($exportFormat) {
@@ -257,6 +272,12 @@ else {
 }
 if ($customFeatureRequested) {
     Write-Step "Custom features: $($selectedFeatureIds -join ', ')"
+}
+if (-not $IncludeProfilePreferences -and $policyTarget.Kind -ne 'MobileMDM') {
+    $profilePatchFeatures = @(Get-ProfilePatchFeatureIds -Manifest $manifest -SelectedFeatureIds $selectedFeatureIds)
+    if ($profilePatchFeatures.Count -gt 0) {
+        Write-Step "Note: profile preference cleanup is not included. Add -IncludeProfilePreferences to also patch per-profile settings for: $($profilePatchFeatures -join ', ')."
+    }
 }
 
 if (-not $applyChanges) {
@@ -309,11 +330,22 @@ if ($applyChanges -and -not $NoBackup) {
     Write-Step "Backup written to $backupPath"
 }
 
+# Preview runs annotate each planned write with the value Brave currently has, when the target is readable.
+$currentPolicyValues = $null
+if (-not $applyChanges -and $policyTarget.Kind -ne 'MobileMDM') {
+    $currentPolicyValues = Get-PolicyValueMap -Target $policyTarget -PolicyNames $policyNames.ToArray()
+}
+
 $appliedPolicyCount = 0
+$alreadySetCount = 0
 foreach ($policyName in $policyNames) {
     $definition = $policyDefinitions[$policyName]
     if (-not $applyChanges) {
-        Write-DryRun "Would set $policyName = $($definition.value) ($($definition.reason))"
+        $stateNote = Get-PolicyStateNote -CurrentValues $currentPolicyValues -Name $policyName -Definition $definition
+        if ($stateNote.AlreadySet) {
+            $alreadySetCount++
+        }
+        Write-DryRun "Would set $policyName = $($definition.value) ($($definition.reason))$($stateNote.Text)"
         continue
     }
 
@@ -344,12 +376,13 @@ if ($IncludeProfilePreferences) {
 
 $obsoletePlanSummary = if ($obsoletePolicyNames.Count -gt 0) { ", $($obsoletePolicyNames.Count) obsolete leftover(s) to remove" } else { '' }
 $obsoleteDoneSummary = if ($removedObsoleteCount -gt 0) { " Removed $removedObsoleteCount obsolete leftover(s)." } else { '' }
+$alreadySetSummary = if ($alreadySetCount -gt 0) { " ($alreadySetCount already set)" } else { '' }
 if (-not $applyChanges) {
     if ($isWhatIf) {
-        Write-Step "WhatIf complete. $($policyNames.Count) policy value(s) planned$obsoletePlanSummary, no changes were made. Rerun with -Apply without -WhatIf when you are ready."
+        Write-Step "WhatIf complete. $($policyNames.Count) policy value(s) planned$alreadySetSummary$obsoletePlanSummary, no changes were made. Rerun with -Apply without -WhatIf when you are ready."
     }
     else {
-        Write-Step "Dry-run complete. $($policyNames.Count) policy value(s) planned$obsoletePlanSummary, no changes were made. Rerun with -Apply when you are ready."
+        Write-Step "Dry-run complete. $($policyNames.Count) policy value(s) planned$alreadySetSummary$obsoletePlanSummary, no changes were made. Rerun with -Apply when you are ready."
     }
 }
 else {

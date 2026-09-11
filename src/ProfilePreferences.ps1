@@ -76,6 +76,14 @@ function Get-BraveProfilePreferenceFiles {
     return $files.ToArray()
 }
 
+function Get-ProfileBackupDirectory {
+    param([Parameter(Mandatory = $true)][string]$BackupPath)
+
+    $backupDirectory = Split-Path -Parent (Get-FullFileSystemPath -Path $BackupPath)
+    $backupName = [System.IO.Path]::GetFileNameWithoutExtension($BackupPath)
+    return (Join-Path (Join-Path $backupDirectory 'profile-files') $backupName)
+}
+
 function Invoke-ProfilePreferenceCleanup {
     param(
         [string]$Root,
@@ -86,15 +94,23 @@ function Invoke-ProfilePreferenceCleanup {
         [switch]$DoApply
     )
 
-    $files = @(Get-BraveProfilePreferenceFiles -Root $Root)
-    if ($files.Count -eq 0) {
-        Write-Warning "No Brave profile Preferences files were found under $Root. Profile preference cleanup was skipped."
+    if ([string]::IsNullOrWhiteSpace($Root)) {
+        Write-Warning 'No Brave profile root is known for this platform, so profile preference cleanup was skipped. Pass -ProfileRoot with the Brave "User Data" folder, or omit -IncludeProfilePreferences.'
         return
     }
 
-    if ($DoApply -and (Test-BraveRunning)) {
-        Write-Warning 'Brave is running, so profile preference cleanup was skipped. Close Brave, then rerun with -IncludeProfilePreferences -Apply.'
+    $files = @(Get-BraveProfilePreferenceFiles -Root $Root)
+    if ($files.Count -eq 0) {
+        Write-Warning "No Brave profile Preferences files were found under $Root. Profile preference cleanup was skipped. Check -ProfileRoot or -Channel if Brave is installed."
         return
+    }
+
+    if (Test-BraveRunning) {
+        if ($DoApply) {
+            Write-Warning 'Brave is running, so profile preference cleanup was skipped. Close Brave, then rerun with -IncludeProfilePreferences -Apply.'
+            return
+        }
+        Write-Step 'Note: Brave is running. Close it before adding -Apply, or profile preference cleanup will be skipped.'
     }
 
     $profileBackups = New-Object System.Collections.Generic.List[object]
@@ -160,14 +176,14 @@ function Invoke-ProfilePreferenceCleanup {
         }
 
         if ($DoApply -and $changed) {
-            $profileBackupDirectory = Join-Path (Split-Path -Parent $BackupPath) 'profile-files'
-            if (-not (Test-Path -LiteralPath $profileBackupDirectory)) {
-                New-Item -ItemType Directory -Path $profileBackupDirectory -Force | Out-Null
-            }
+            # Each backup gets its own folder under profile-files/ so a later apply run cannot
+            # overwrite the original Preferences copy that an earlier backup still points to.
+            $profileBackupDirectory = Get-ProfileBackupDirectory -BackupPath $BackupPath
+            New-DirectoryLiteral -Path $profileBackupDirectory
 
             $safeName = ($file -replace '[:\\\/ ]', '_')
             $profileBackupPath = Join-Path $profileBackupDirectory "$safeName.bak"
-            Copy-Item -LiteralPath $file -Destination $profileBackupPath -Force
+            Copy-FileLiteral -SourcePath $file -DestinationPath $profileBackupPath
             [void]$profileBackups.Add([pscustomobject]@{
                 originalPath = $file
                 backupPath = $profileBackupPath

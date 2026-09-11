@@ -102,6 +102,37 @@ Describe 'Restore safety' {
     }
 }
 
+Describe 'Profile preference preview' {
+    BeforeAll {
+        $root = Split-Path -Parent $PSScriptRoot
+        . (Join-Path $root 'src/Common.ps1')
+        . (Join-Path $root 'src/ProfilePreferences.ps1')
+        $manifest = Get-Content -LiteralPath (Join-Path (Join-Path $root 'config') 'policies.json') -Raw | ConvertFrom-Json
+    }
+
+    It 'warns during a dry-run that apply will be skipped while Brave is running' {
+        $directory = Join-Path ([System.IO.Path]::GetTempPath()) ('BraveDebloaterPester-{0}' -f [guid]::NewGuid().ToString('N'))
+        $profileDirectory = Join-Path $directory 'Default'
+        New-Item -ItemType Directory -Path $profileDirectory -Force | Out-Null
+        try {
+            $preferences = Join-Path $profileDirectory 'Preferences'
+            Set-Content -LiteralPath $preferences -Value '{"brave":{"rewards":{"enabled":true}}}' -Encoding UTF8
+
+            Mock Get-Process { return [pscustomobject]@{ ProcessName = 'brave' } }
+            Mock Write-Host {}
+
+            Invoke-ProfilePreferenceCleanup -Root $directory -Manifest $manifest -BackupPath ''
+
+            Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -like '*Brave is running. Close it before adding -Apply*' }
+            Should -Invoke Write-Host -ParameterFilter { $Object -like '*Would set brave.rewards.enabled*' }
+            (Get-Content -LiteralPath $preferences -Raw) | Should -BeLike '*"enabled":true*'
+        }
+        finally {
+            Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Describe 'Backup retention' {
     BeforeAll {
         $root = Split-Path -Parent $PSScriptRoot
