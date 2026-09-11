@@ -69,7 +69,7 @@ Scoop users can install straight from this repository, with a `bravedebloat` shi
 scoop install https://raw.githubusercontent.com/osfv/BraveDebloater/main/packaging/scoop/bravedebloater.json
 ```
 
-winget: releases from 0.5.0 ship `BraveDebloater-vX.Y.Z-windows.zip` with a `BraveDebloat.exe` launcher so the package can be listed in [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) as `osfv.BraveDebloater`. Once that listing is accepted, `winget install osfv.BraveDebloater` puts `BraveDebloat` on your `PATH`; it runs `Invoke-BraveDebloat.ps1` with the same arguments (`BraveDebloat -Preset Extreme`). See `packaging/README.md`.
+winget: releases from 0.5.0 ship `BraveDebloater-vX.Y.Z-windows.zip` with a `BraveDebloat.exe` launcher so the package can be listed in [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) as `osfv.BraveDebloater`. Once that listing is accepted, `winget install osfv.BraveDebloater` puts `BraveDebloat` on your `PATH`; it runs `Invoke-BraveDebloat.ps1` with the same arguments (`BraveDebloat -Preset Extreme`). Because winget owns its package folder and upgrades reinstall it, pass `-BackupDirectory` pointing outside that folder (for example `"$env:LOCALAPPDATA\BraveDebloater\backups"`) so restore points survive. See `packaging/README.md`.
 
 Manual install: download `BraveDebloater-vX.Y.Z.zip` from the Releases page, then extract it to a folder you control, such as `Downloads\BraveDebloater`. To verify the archive first, download `SHA256SUMS.txt` from the same release and compare it with:
 

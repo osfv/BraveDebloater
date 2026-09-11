@@ -47,8 +47,18 @@ Submitting to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs):
   scope, on an account that has forked winget-pkgs). The release workflow's `winget` job then runs
   `wingetcreate submit` automatically. Without the secret the job prints the manual command.
 
-After acceptance: `winget install osfv.BraveDebloater`, then `BraveDebloat` from any shell. Backups
-land in `backups/` inside winget's package folder, which `uninstallPrevious` upgrades leave alone.
+After acceptance: `winget install osfv.BraveDebloater`, then `BraveDebloat` from any shell.
+
+Backups default to `backups/` next to the script, which for winget is inside its package folder
+(`%LOCALAPPDATA%\Microsoft\WinGet\Packages\osfv.BraveDebloater_...`). winget owns that folder: upgrades
+uninstall the previous version first and `winget uninstall --purge` deletes everything in it, and nothing
+in this repository relocates or verifies those files (the Scoop manifest persists `backups/`, winget has
+no equivalent). Keep restore points out of the package folder when installing through winget:
+
+```powershell
+BraveDebloat -Preset Extreme -BackupDirectory "$env:LOCALAPPDATA\BraveDebloater\backups" -Apply
+BraveDebloat -ListBackups -BackupDirectory "$env:LOCALAPPDATA\BraveDebloater\backups"
+```
 
 ## Scoop
 
