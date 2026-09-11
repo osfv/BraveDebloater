@@ -11,17 +11,17 @@ Official sources used for this pass:
 
 Downloaded template evidence:
 
-- Template version: `153.1.96.44`
-- Archive timestamp: September 3, 2026
+- Template version: `153.1.97.22`
+- Archive timestamp: September 10, 2026
 - Checked files: `VERSION` and `windows/admx/brave.admx`
 
 Targeted Reddit, Brave Community, and GitHub searches did not produce a newer or more authoritative debloatable-policy source than Brave's Help Center and template zip.
 
 ## What Changed
 
-The manifest version in `config/policies.json` changed from `151.1.94.91` to `153.1.96.44`.
+The manifest version in `config/policies.json` changed from `153.1.96.44` to `153.1.97.22`. No manifest policy was added, removed, or retyped in that template update; every active policy still exists in the ADMX with the same boolean or enum shape.
 
-These official-template policies were added because they match BraveDebloater's scope:
+These official-template policies were added in the `153.1.96.44` pass because they match BraveDebloater's scope:
 
 - `EmailAliasesEnabled = 0`
 
@@ -56,8 +56,10 @@ iOS/iPadOS export validation now reads that allow-list from the manifest instead
 
 It checks that:
 
-- the manifest version matches the zip `VERSION`;
+- the zip `VERSION` is not older than the manifest version. A newer zip passes with a warning because the `latest` download moves with every Brave release; pass `-RequireVersionMatch` for release checks that must match exactly;
 - every manifest policy exists in `windows/admx/brave.admx` and is not under `DeprecatedPolicies`;
+- every manifest `DWord` value fits the ADMX definition: `0`/`1` only for boolean policies (`enabledValue`/`disabledValue`), and other values only when listed as an `enum` item or allowed by a `decimal` element. This matters because the Linux JSON and macOS plist writers emit `0`/`1` as booleans, which Brave rejects for integer policies;
+- every manifest `String` policy is a `text` element in the ADMX;
 - every `deprecatedPolicies` name is absent from the ADMX template, or still present only under `DeprecatedPolicies` / `deprecated="true"`;
 - every iOS allow-listed policy is defined in the manifest.
 
