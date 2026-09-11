@@ -145,7 +145,8 @@ function Get-PolicyTarget {
             return [pscustomobject]@{ Platform = $PlatformName; Kind = 'Registry'; Path = (Get-RegistryBasePath -ScopeName $ScopeName -UserSid $UserSid -Apply:$Apply -ReadOnly:$ReadOnly) }
         }
         'Linux' {
-            $path = if ([string]::IsNullOrWhiteSpace($OverridePath)) { '/etc/brave/policies/managed/BraveDebloater.json' } else { $OverridePath }
+            # Record the full path so backups and restores match regardless of the working directory.
+            $path = if ([string]::IsNullOrWhiteSpace($OverridePath)) { '/etc/brave/policies/managed/BraveDebloater.json' } else { Get-FullFileSystemPath -Path $OverridePath }
             if ($Apply -and -not $ReadOnly -and [string]::IsNullOrWhiteSpace($OverridePath) -and -not (Test-IsAdministrator)) {
                 throw "Linux managed policies are written to '$path' and need root. Rerun the command with sudo, or use -PolicyPath to write a test file somewhere you can access."
             }
@@ -153,7 +154,7 @@ function Get-PolicyTarget {
         }
         'macOS' {
             if ($ScopeName -eq 'LocalMachine') {
-                $path = if ([string]::IsNullOrWhiteSpace($OverridePath)) { '/Library/Managed Preferences/com.brave.Browser.plist' } else { $OverridePath }
+                $path = if ([string]::IsNullOrWhiteSpace($OverridePath)) { '/Library/Managed Preferences/com.brave.Browser.plist' } else { Get-FullFileSystemPath -Path $OverridePath }
                 if (-not $ReadOnly -and [string]::IsNullOrWhiteSpace($OverridePath) -and -not (Test-IsAdministrator)) {
                     throw "macOS LocalMachine scope writes to '$path' and needs root. Use -Scope CurrentUser, or rerun the command with sudo."
                 }
@@ -183,6 +184,33 @@ function Get-ManagedPolicyJson {
     }
 
     return $json
+}
+
+function Get-ManagedPolicyValueKind {
+    param($Value)
+
+    # Managed JSON and plist values have no registry kind, so derive the closest match from the
+    # value type. Anything else (arrays, objects, fractions) cannot be restored as a Brave policy value.
+    if ($Value -is [bool] -or $Value -is [int] -or $Value -is [long] -or $Value -is [int16] -or $Value -is [byte]) {
+        return 'DWord'
+    }
+    if ($Value -is [string]) {
+        return 'String'
+    }
+    return 'Unsupported'
+}
+
+function Test-ManagedPolicyPath {
+    param([string]$Path)
+
+    # A managed policy file target must be a filesystem path, not a registry key or a defaults domain.
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+    if ($Path -like 'Registry::*' -or $Path -like 'HKEY_*' -or $Path -like 'HK??:*') {
+        return $false
+    }
+    return ($Path -ne 'com.brave.Browser')
 }
 
 function Get-PolicyTargetElevationHint {
@@ -242,8 +270,7 @@ function Get-PolicyValue {
                 # The value could not be read (e.g. access denied). We cannot tell whether it was
                 # absent or merely unreadable, so flag it as a read error. The snapshot records this so
                 # a later restore skips the value instead of deleting one that may actually be present.
-                Write-Warning "Could not read registry value '$Name' under '$($Target.Path)', so it was excluded from the backup: $($_.Exception.Message)"
-                return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true }
+                return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true; ErrorMessage = $_.Exception.Message }
             }
         }
         return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
@@ -255,14 +282,14 @@ function Get-PolicyValue {
                 $json = Get-ManagedPolicyJson -Path $Target.Path
                 $property = $json.PSObject.Properties[$Name]
                 if ($null -ne $property) {
-                    return [pscustomobject]@{ Exists = $true; Value = $property.Value; Kind = 'DWord'; ReadError = $false }
+                    return [pscustomobject]@{ Exists = $true; Value = $property.Value; Kind = (Get-ManagedPolicyValueKind -Value $property.Value); ReadError = $false }
                 }
             }
             catch {
                 # The whole managed policy file is unreadable or not a JSON object. Treat it like an
                 # unreadable registry value so leftover scans and backups skip it instead of aborting
                 # a dry-run or WhatIf preview.
-                return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true }
+                return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true; ErrorMessage = $_.Exception.Message }
             }
         }
         return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
@@ -273,22 +300,31 @@ function Get-PolicyValue {
             return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
         }
 
-        $arguments = if ($Target.Kind -eq 'MacOSDefaults') { @('read', $Target.Path, $Name) } else { @('read', ($Target.Path -replace '\.plist$', ''), $Name) }
+        $domain = if ($Target.Kind -eq 'MacOSDefaults') { $Target.Path } else { $Target.Path -replace '\.plist$', '' }
         try {
-            $output = & /usr/bin/defaults @arguments 2>$null
+            $output = & /usr/bin/defaults read $domain $Name 2>$null
             $readSucceeded = $LASTEXITCODE -eq 0
+            $typeOutput = @()
+            if ($readSucceeded) {
+                # `defaults read` prints booleans as 1/0. Ask for the stored type so the snapshot
+                # keeps booleans as booleans and a restore writes them back with -bool.
+                $typeOutput = @(& /usr/bin/defaults read-type $domain $Name 2>$null)
+            }
         }
         catch {
-            return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true }
+            return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true; ErrorMessage = $_.Exception.Message }
         }
         # `defaults read` exits non-zero when the key is absent (the common case during a scan).
         # Clear LASTEXITCODE so a missing key does not leak a failure exit code to the script.
         $global:LASTEXITCODE = 0
         if ($readSucceeded) {
-            $text = $output -join "`n"
+            $text = ($output -join "`n").Trim()
             $number = 0
             $value = if ([int]::TryParse($text, [ref]$number)) { $number } else { $text }
-            $kind = if ($value -is [int]) { 'DWord' } else { 'String' }
+            if ($value -is [int] -and (($typeOutput -join ' ') -match '(?i)boolean')) {
+                $value = [bool]$number
+            }
+            $kind = if ($value -is [int] -or $value -is [bool]) { 'DWord' } else { 'String' }
             return [pscustomobject]@{ Exists = $true; Value = $value; Kind = $kind; ReadError = $false }
         }
     }
@@ -314,6 +350,7 @@ function Get-PresentPolicyNames {
             $value = Get-PolicyValue -Target $Target -Name $policyName
             if ($value.ReadError) {
                 $hadReadError = $true
+                $readErrorMessage = Get-PolicyValueErrorMessage -Value $value
                 continue
             }
             if ($value.Exists) {
@@ -334,6 +371,63 @@ function Get-PresentPolicyNames {
     return $present.ToArray()
 }
 
+function Get-PolicyValueErrorMessage {
+    param([Parameter(Mandatory = $true)]$Value)
+
+    $property = $Value.PSObject.Properties['ErrorMessage']
+    if ($null -eq $property) {
+        return ''
+    }
+    return [string]$property.Value
+}
+
+function Get-PolicyValueMap {
+    param(
+        [Parameter(Mandatory = $true)]$Target,
+        [string[]]$PolicyNames
+    )
+
+    # Best-effort read of the current values for preview annotations. Returns $null when the
+    # target cannot be read at all so callers can silently skip the annotations.
+    $map = @{}
+    try {
+        foreach ($policyName in @($PolicyNames)) {
+            $value = Get-PolicyValue -Target $Target -Name $policyName
+            if ($value.ReadError) {
+                return $null
+            }
+            $map[$policyName] = $value
+        }
+    }
+    catch {
+        return $null
+    }
+    return $map
+}
+
+function Get-PolicyStateNote {
+    param(
+        [hashtable]$CurrentValues,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)]$Definition
+    )
+
+    if ($null -eq $CurrentValues -or -not $CurrentValues.ContainsKey($Name)) {
+        return [pscustomobject]@{ Text = ''; AlreadySet = $false }
+    }
+
+    $current = $CurrentValues[$Name]
+    if (-not $current.Exists) {
+        return [pscustomobject]@{ Text = ' Currently not set.'; AlreadySet = $false }
+    }
+    if (Test-PolicyValueMatches -ActualValue $current.Value -ExpectedValue $Definition.value -Type ([string]$Definition.type)) {
+        return [pscustomobject]@{ Text = ' Already set, no change.'; AlreadySet = $true }
+    }
+
+    $currentText = if ($current.Value -is [bool]) { if ($current.Value) { '1' } else { '0' } } else { [string]$current.Value }
+    return [pscustomobject]@{ Text = " Currently $currentText."; AlreadySet = $false }
+}
+
 function Get-PolicySnapshot {
     param(
         [Parameter(Mandatory = $true)]$Target,
@@ -343,6 +437,11 @@ function Get-PolicySnapshot {
     $snapshot = New-Object System.Collections.Generic.List[object]
     foreach ($policyName in $PolicyNames) {
         $value = Get-PolicyValue -Target $Target -Name $policyName
+        if ($value.ReadError) {
+            $detail = Get-PolicyValueErrorMessage -Value $value
+            $detailText = if ([string]::IsNullOrWhiteSpace($detail)) { '.' } else { ": $detail" }
+            Write-Warning "Could not read policy value '$policyName' at '$($Target.Path)', so it was excluded from the backup and a restore will leave it untouched$detailText"
+        }
         [void]$snapshot.Add([pscustomobject]@{
                 name = $policyName
                 existed = [bool]$value.Exists
@@ -386,10 +485,7 @@ function Set-PolicyValue {
         $domain = if ($Target.Kind -eq 'MacOSDefaults') { $Target.Path } else { $Target.Path -replace '\.plist$', '' }
         $typeFlag = if ($value -is [bool]) { '-bool' } elseif ($value -is [int]) { '-int' } else { '-string' }
         if ($Target.Kind -eq 'MacOSPlist') {
-            $directory = Split-Path -Parent $Target.Path
-            if (-not (Test-Path -LiteralPath $directory)) {
-                New-Item -ItemType Directory -Path $directory -Force | Out-Null
-            }
+            New-DirectoryLiteral -Path (Split-Path -Parent $Target.Path)
         }
         & /usr/bin/defaults write $domain $Name $typeFlag $value
         if ($LASTEXITCODE -ne 0) {
@@ -409,7 +505,12 @@ function Remove-PolicyValue {
 
     if ($Target.Kind -eq 'Registry') {
         if (Test-Path -LiteralPath $Target.Path) {
-            Remove-ItemProperty -LiteralPath $Target.Path -Name $Name -ErrorAction SilentlyContinue
+            $key = Get-Item -LiteralPath $Target.Path
+            # Only delete when the value is present so a missing value is not reported as an error,
+            # but let real failures (for example access denied) surface instead of claiming success.
+            if ($null -ne $key.GetValue($Name, $null)) {
+                Remove-ItemProperty -LiteralPath $Target.Path -Name $Name -ErrorAction Stop
+            }
         }
         return
     }
@@ -491,7 +592,7 @@ function Get-PolicyReport {
         if ($Target.Kind -eq 'JsonFile' -and $keyExists) {
             $json = Get-ManagedPolicyJson -Path $Target.Path
             foreach ($property in $json.PSObject.Properties) {
-                [void]$entries.Add([pscustomobject]@{ Name = $property.Name; Value = $property.Value; Kind = 'DWord' })
+                [void]$entries.Add([pscustomobject]@{ Name = $property.Name; Value = $property.Value; Kind = (Get-ManagedPolicyValueKind -Value $property.Value) })
             }
         }
         elseif ($Target.Kind -eq 'MacOSDefaults' -or $Target.Kind -eq 'MacOSPlist') {
@@ -556,6 +657,18 @@ function ConvertTo-ManagedPolicyValue {
     param([Parameter(Mandatory = $true)]$Definition)
 
     if ($Definition.type -eq 'DWord') {
+        # Restores carry the value exactly as it was recorded (JSON true/false or a number), so an
+        # integer policy such as NetworkPredictionOptions = 0 is not turned back into `false`.
+        $preserveProperty = $Definition.PSObject.Properties['preserveValueType']
+        if ($null -ne $preserveProperty -and [bool]$preserveProperty.Value) {
+            if ($Definition.value -is [bool]) {
+                return [bool]$Definition.value
+            }
+            return [int]$Definition.value
+        }
+
+        # Manifest values: 0/1 are only ever used for boolean policies (checked against the ADMX by
+        # scripts/Test-LatestPolicyTemplates.ps1), so they become JSON/plist booleans.
         $number = [int]$Definition.value
         if ($number -eq 0 -or $number -eq 1) {
             return [bool]$number
@@ -727,7 +840,9 @@ function ConvertTo-RegFileDocument {
             [void]$lines.Add(('"{0}"=dword:{1:x8}' -f $entry.Key, [uint32]$value))
         }
         else {
-            $escaped = ([string]$value) -replace '\\', '\\\\' -replace '"', '\"'
+            # .reg strings escape a backslash as '\\' and a quote as '\"'. Use String.Replace so the
+            # replacement text is literal; -replace treats the replacement as a regex substitution.
+            $escaped = ([string]$value).Replace('\', '\\').Replace('"', '\"')
             [void]$lines.Add(('"{0}"="{1}"' -f $entry.Key, $escaped))
         }
     }

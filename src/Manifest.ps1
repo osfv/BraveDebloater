@@ -241,6 +241,26 @@ function Resolve-FeatureSelection {
     return $selectedFeatureIds.ToArray()
 }
 
+function Get-ProfilePatchFeatureIds {
+    param(
+        [Parameter(Mandatory = $true)]$Manifest,
+        [string[]]$SelectedFeatureIds
+    )
+
+    # Feature ids, in manifest order, whose cleanup also includes profile Preferences patches.
+    $ids = New-Object System.Collections.Generic.List[string]
+    foreach ($patch in @($Manifest.profilePreferencePatches)) {
+        $featureId = [string]$patch.feature
+        if ([string]::IsNullOrWhiteSpace($featureId)) {
+            continue
+        }
+        if (@($SelectedFeatureIds) -contains $featureId) {
+            Add-StringIfMissing -List $ids -Value $featureId
+        }
+    }
+    return $ids.ToArray()
+}
+
 function Assert-PolicySafety {
     param(
         [string[]]$PolicyNames,

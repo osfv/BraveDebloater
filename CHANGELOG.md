@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-09-11
+
+- Fixed profile `Preferences` backups from different apply runs overwriting each other. Each backup now keeps its copies in `backups/profile-files/<backup-name>/`, so restoring an older backup brings back that run's original file. Existing backups keep working.
+- Fixed restores of Linux JSON and macOS policy values turning an integer policy that was `0` or `1` (for example `NetworkPredictionOptions = 0`) into a boolean Brave rejects. Restores now write values back with their recorded type, and macOS reads use `defaults read-type` so booleans stay booleans.
+- Fixed `.reg` exports escaping a backslash in string values as four backslashes instead of two.
+- Fixed `Move-Item`/`Copy-Item` destination handling for profile and policy paths that contain `[` or `]`; file writes now use literal .NET file APIs on every PowerShell version.
+- Restore now rejects a backup whose `policyKind` does not match its recorded path (for example a registry key path with a JSON-file kind, or a JSON-file kind pointing at the macOS managed plist), rejects unknown kinds, and stops early without root when restoring the Linux default policy file. File kinds only accept their own platform's default path or the `-PolicyPath` passed to the restore.
+- Registry policy removal during apply and restore no longer hides failures; access errors now stop the run instead of reporting "Removed".
+- Managed JSON policy values are now snapshotted and reported with their real kind (`String` for strings) instead of always `DWord`.
+- `-ExportPolicyPath` combined with `-Apply` no longer demands elevation or fails for Android/iOS; `-Apply` is ignored with a warning because exports never touch the policy target.
+- `-PruneBackupsOlderThanDays` and `-KeepLatestBackups` also remove the profile `Preferences` copies stored in the pruned backup's own `profile-files/<backup-name>/` folder, and previews list them. Copies elsewhere, including those from backups made before 0.4.0, are left alone.
+- Dry-run and `-WhatIf` lines now show the current state of each policy when the target is readable (`Currently not set.`, `Currently 0.`, or `Already set, no change.`), and the summary counts values that are already set.
+- Previews print a hint when selected features also have profile preference patches but `-IncludeProfilePreferences` was not used, and note when Brave is running so an apply run would skip profile cleanup.
+- `-PolicyPath` for Linux and macOS machine-wide targets is recorded as a full path, so restores match a relative `-PolicyPath` typed from another working directory.
+- Added `-Version` to print the tool version, the recorded Brave policy template version, and the PowerShell version for bug reports.
+- `scripts/Test-LatestPolicyTemplates.ps1` now accepts a newer `latest` Brave template with a warning instead of failing CI on every Brave release (pass `-RequireVersionMatch` for release checks), and validates every manifest value against the ADMX definition: `0`/`1` only for boolean policies, listed values for enum policies, and the `minValue`/`maxValue` range for integer policies.
+- `scripts/Test-PolicyManifest.ps1` parses every `.ps1` file under `src/`, `scripts/`, and `tests/` for syntax errors, not only the entrypoint.
+- `-Doctor -PolicyPath` on Linux reports the selected file once instead of also scanning the default path.
+- Recorded Brave policy template `153.1.97.22`. No policy was added, removed, or retyped.
+
 ## 0.3.0 - 2026-09-03
 
 - Stop applying Brave's obsolete `PrivacySandboxPromptEnabled` policy, and remove leftover copies of that name plus `PromotionalTabsEnabled` and `IPFSEnabled` from the selected policy target on apply so `brave://policy` no longer flags them.

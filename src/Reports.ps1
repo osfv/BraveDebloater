@@ -53,6 +53,19 @@ function Show-ProfilePreferencePatchList {
     $rows | Format-Table -AutoSize -Wrap
 }
 
+function Show-VersionInfo {
+    param(
+        [Parameter(Mandatory = $true)][string]$ToolVersion,
+        [Parameter(Mandatory = $true)]$Manifest,
+        [string]$PlatformName
+    )
+
+    $edition = if ($PSVersionTable.ContainsKey('PSEdition')) { [string]$PSVersionTable['PSEdition'] } else { 'Desktop' }
+    Write-Host "BraveDebloater $ToolVersion"
+    Write-Host "Policy template version: $($Manifest.policyTemplateVersion) (manifest schema $($Manifest.schemaVersion))"
+    Write-Host "PowerShell: $($PSVersionTable.PSVersion) ($edition) on $PlatformName"
+}
+
 function Show-DoctorReport {
     param(
         [Parameter(Mandatory = $true)]$Manifest,
@@ -68,7 +81,9 @@ function Show-DoctorReport {
     Write-Step 'Use this report to see what Brave already has, then decide whether to run a preview or apply command.'
 
     $knownPolicyNames = @($PolicyDefinitions.Keys)
-    $currentUserTarget = Get-PolicyTarget -PlatformName $PlatformName -ScopeName 'CurrentUser' -OverridePath '' -ReadOnly
+    # -PolicyPath only affects file targets (Linux JSON, macOS machine plist). Passing it to both
+    # scopes keeps Linux on a single report for the selected file instead of also scanning the default path.
+    $currentUserTarget = Get-PolicyTarget -PlatformName $PlatformName -ScopeName 'CurrentUser' -OverridePath $PolicyPath -ReadOnly
     $localMachineTarget = Get-PolicyTarget -PlatformName $PlatformName -ScopeName 'LocalMachine' -OverridePath $PolicyPath -ReadOnly
     $currentUserReport = Get-PolicyReport -Target $currentUserTarget -ScopeName 'CurrentUser' -PolicyNames $knownPolicyNames
     $localMachineReport = Get-PolicyReport -Target $localMachineTarget -ScopeName 'LocalMachine' -PolicyNames $knownPolicyNames

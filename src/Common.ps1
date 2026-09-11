@@ -96,6 +96,15 @@ function Get-Utf8FileContent {
     return [System.IO.File]::ReadAllText((Get-FullFileSystemPath -Path $Path), [System.Text.Encoding]::UTF8)
 }
 
+function Get-ProfileBackupDirectory {
+    param([Parameter(Mandatory = $true)][string]$BackupPath)
+
+    # Profile Preferences copies live in a folder named after their backup JSON so runs never share files.
+    $backupDirectory = Split-Path -Parent (Get-FullFileSystemPath -Path $BackupPath)
+    $backupName = [System.IO.Path]::GetFileNameWithoutExtension($BackupPath)
+    return (Join-Path (Join-Path $backupDirectory 'profile-files') $backupName)
+}
+
 function Get-JsonFileContent {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -122,20 +131,66 @@ function Set-TextFileContent {
 
     $fullPath = Get-FullFileSystemPath -Path $Path
     $directory = Split-Path -Parent $fullPath
-    if (-not [string]::IsNullOrWhiteSpace($directory) -and -not (Test-Path -LiteralPath $directory)) {
-        New-Item -ItemType Directory -Path $directory -Force | Out-Null
-    }
+    New-DirectoryLiteral -Path $directory
 
     $tempDirectory = if ([string]::IsNullOrWhiteSpace($directory)) { '.' } else { $directory }
     $tempPath = Join-Path $tempDirectory ('.{0}.tmp' -f [guid]::NewGuid().ToString('N'))
     try {
         [System.IO.File]::WriteAllText($tempPath, $Content, $Encoding)
-        Move-Item -LiteralPath $tempPath -Destination $fullPath -Force
+        Move-FileLiteral -SourcePath $tempPath -DestinationPath $fullPath
     }
     finally {
-        if (Test-Path -LiteralPath $tempPath) {
-            Remove-Item -LiteralPath $tempPath -Force
+        if ([System.IO.File]::Exists($tempPath)) {
+            [System.IO.File]::Delete($tempPath)
         }
+    }
+}
+
+function Move-FileLiteral {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+
+    # Move-Item/Copy-Item treat -Destination as a wildcard pattern on Windows PowerShell 5.1, so a
+    # profile path containing '[' or ']' could land somewhere else. .NET file APIs are always literal.
+    # File.Replace keeps the swap atomic on the same volume; fall back to an overwrite copy elsewhere.
+    if ([System.IO.File]::Exists($DestinationPath)) {
+        try {
+            [System.IO.File]::Replace($SourcePath, $DestinationPath, [NullString]::Value)
+            return
+        }
+        catch {
+            [System.IO.File]::Copy($SourcePath, $DestinationPath, $true)
+            [System.IO.File]::Delete($SourcePath)
+            return
+        }
+    }
+
+    [System.IO.File]::Move($SourcePath, $DestinationPath)
+}
+
+function Copy-FileLiteral {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+
+    $fullDestination = Get-FullFileSystemPath -Path $DestinationPath
+    New-DirectoryLiteral -Path (Split-Path -Parent $fullDestination)
+    [System.IO.File]::Copy((Get-FullFileSystemPath -Path $SourcePath), $fullDestination, $true)
+}
+
+function New-DirectoryLiteral {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return
+    }
+
+    $fullPath = Get-FullFileSystemPath -Path $Path
+    if (-not [System.IO.Directory]::Exists($fullPath)) {
+        [System.IO.Directory]::CreateDirectory($fullPath) | Out-Null
     }
 }
 

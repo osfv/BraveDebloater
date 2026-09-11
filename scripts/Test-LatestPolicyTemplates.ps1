@@ -2,7 +2,11 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$TemplateZipPath
+    [string]$TemplateZipPath,
+
+    # By default a newer template than the manifest records is accepted with a warning, because
+    # the "latest" zip moves with every Brave release. Pass this for release checks that must match.
+    [switch]$RequireVersionMatch
 )
 
 Set-StrictMode -Version Latest
@@ -41,55 +45,157 @@ function Read-ZipEntryText {
     }
 }
 
+function ConvertTo-VersionOrNull {
+    param([string]$Text)
+
+    $parsed = $null
+    if ([version]::TryParse($Text, [ref]$parsed)) {
+        return $parsed
+    }
+    return $null
+}
+
+function Get-AdmxDecimalValues {
+    param(
+        [Parameter(Mandatory = $true)]$Node,
+        [Parameter(Mandatory = $true)][string]$XPath
+    )
+
+    $values = New-Object System.Collections.Generic.List[long]
+    foreach ($decimal in $Node.SelectNodes($XPath)) {
+        $text = [string]$decimal.GetAttribute('value')
+        $number = [long]0
+        if ([long]::TryParse($text, [ref]$number)) {
+            [void]$values.Add($number)
+        }
+    }
+    return $values.ToArray()
+}
+
+function Get-AdmxDecimalRange {
+    param([Parameter(Mandatory = $true)]$Element)
+
+    # ADMX decimal elements default to 0..9999 when minValue/maxValue are omitted.
+    $minimum = [long]0
+    $maximum = [long]9999
+    $minimumText = [string]$Element.GetAttribute('minValue')
+    $maximumText = [string]$Element.GetAttribute('maxValue')
+    if ($minimumText -ne '' -and -not [long]::TryParse($minimumText, [ref]$minimum)) {
+        throw "ADMX decimal element '$($Element.GetAttribute('id'))' has an unreadable minValue '$minimumText'."
+    }
+    if ($maximumText -ne '' -and -not [long]::TryParse($maximumText, [ref]$maximum)) {
+        throw "ADMX decimal element '$($Element.GetAttribute('id'))' has an unreadable maxValue '$maximumText'."
+    }
+    return [pscustomobject]@{ Minimum = $minimum; Maximum = $maximum }
+}
+
+function Assert-AdmxValueType {
+    param(
+        [Parameter(Mandatory = $true)][string]$PolicyName,
+        [Parameter(Mandatory = $true)]$Policy,
+        [Parameter(Mandatory = $true)]$Node
+    )
+
+    # Linux JSON and macOS plist writers turn DWord 0/1 into booleans and keep other numbers as
+    # integers, so a manifest DWord must be a boolean policy when its value is 0/1 and an enum or
+    # integer policy otherwise. Brave rejects a boolean where it expects an integer and vice versa.
+    $type = [string]$Policy.type
+    $enabledValues = @(Get-AdmxDecimalValues -Node $Node -XPath 'enabledValue/decimal')
+    $disabledValues = @(Get-AdmxDecimalValues -Node $Node -XPath 'disabledValue/decimal')
+    $enumValues = @(Get-AdmxDecimalValues -Node $Node -XPath 'elements/enum/item/value/decimal')
+    $decimalElements = @($Node.SelectNodes('elements/decimal'))
+    $textElements = @($Node.SelectNodes('elements/text'))
+
+    if ($type -eq 'String') {
+        if ($textElements.Count -eq 0) {
+            throw "Manifest policy '$PolicyName' is a String but the official Brave ADMX template does not define it as a text policy."
+        }
+        return
+    }
+
+    $value = [long]$Policy.value
+    $isBooleanPolicy = $enabledValues.Count -gt 0 -and $disabledValues.Count -gt 0
+    if ($isBooleanPolicy -and $enumValues.Count -eq 0 -and $decimalElements.Count -eq 0) {
+        if ($value -ne 0 -and $value -ne 1) {
+            throw "Manifest policy '$PolicyName' has value $value but the official Brave ADMX template defines it as a boolean policy (0 or 1)."
+        }
+        return
+    }
+
+    if ($enumValues.Count -gt 0) {
+        if ($enumValues -notcontains $value) {
+            throw "Manifest policy '$PolicyName' has value $value which is not one of the enum values in the official Brave ADMX template: $($enumValues -join ', ')."
+        }
+        if ($value -eq 0 -or $value -eq 1) {
+            throw "Manifest policy '$PolicyName' uses value $value for an enum policy. Managed JSON and plist writers would emit a boolean, which Brave rejects for integer policies. Pick a different representation before adding this policy."
+        }
+        return
+    }
+
+    if ($decimalElements.Count -gt 0) {
+        if ($value -eq 0 -or $value -eq 1) {
+            throw "Manifest policy '$PolicyName' uses value $value for an integer policy. Managed JSON and plist writers would emit a boolean, which Brave rejects for integer policies."
+        }
+        foreach ($decimalElement in $decimalElements) {
+            $range = Get-AdmxDecimalRange -Element $decimalElement
+            if ($value -lt $range.Minimum -or $value -gt $range.Maximum) {
+                throw "Manifest policy '$PolicyName' has value $value outside the range $($range.Minimum)-$($range.Maximum) defined in the official Brave ADMX template."
+            }
+        }
+        return
+    }
+
+    throw "Manifest policy '$PolicyName' is a DWord but the official Brave ADMX template does not define it as a boolean, enum, or integer policy."
+}
+
 if (-not (Test-Path -LiteralPath $TemplateZipPath)) {
     throw "Missing template zip: $TemplateZipPath"
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$manifestVersion = [string]$manifest.policyTemplateVersion
 $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $TemplateZipPath))
 try {
     $versionText = Read-ZipEntryText -Zip $zip -EntryName 'VERSION'
     $templateVersion = Get-PolicyTemplateVersionFromText -VersionText $versionText
-    if ($templateVersion -ne [string]$manifest.policyTemplateVersion) {
-        throw "Manifest policyTemplateVersion '$($manifest.policyTemplateVersion)' does not match template '$templateVersion'."
+    $versionNote = ''
+    if ($templateVersion -ne $manifestVersion) {
+        $parsedTemplate = ConvertTo-VersionOrNull -Text $templateVersion
+        $parsedManifest = ConvertTo-VersionOrNull -Text $manifestVersion
+        $templateIsNewer = ($null -ne $parsedTemplate) -and ($null -ne $parsedManifest) -and ($parsedTemplate -gt $parsedManifest)
+        if ($RequireVersionMatch -or -not $templateIsNewer) {
+            throw "Manifest policyTemplateVersion '$manifestVersion' does not match template '$templateVersion'. Run scripts/Update-PolicyTemplateVersion.ps1 -TemplateZipPath '$TemplateZipPath' after checking the policy changes."
+        }
+        Write-Warning "Template '$templateVersion' is newer than the manifest's recorded '$manifestVersion'. Policies still validate; run scripts/Update-PolicyTemplateVersion.ps1 to record the new version."
+        $versionNote = " (manifest records $manifestVersion)"
     }
 
-    $admx = Read-ZipEntryText -Zip $zip -EntryName 'windows/admx/brave.admx'
-    $templatePolicies = @([regex]::Matches($admx, '<policy\b[^>]*\bname="([^"]+)"') |
-        ForEach-Object { $_.Groups[1].Value } |
-        Where-Object { $_ -notmatch '_recommended$' } |
-        Sort-Object -Unique)
-
+    $admxText = Read-ZipEntryText -Zip $zip -EntryName 'windows/admx/brave.admx'
+    [xml]$admx = $admxText
+    $templatePolicies = @{}
     $deprecatedInTemplate = @{}
-    foreach ($policyMatch in [regex]::Matches($admx, '<policy\b[^>]*\bname="([^"]+)"[^>]*>\s*<parentCategory\s+ref="DeprecatedPolicies"\s*/>')) {
-        $templatePolicyName = $policyMatch.Groups[1].Value
-        if ($templatePolicyName -match '_recommended$') {
+    foreach ($node in $admx.SelectNodes('//policy')) {
+        $templatePolicyName = [string]$node.GetAttribute('name')
+        if ([string]::IsNullOrWhiteSpace($templatePolicyName) -or $templatePolicyName -match '_recommended$') {
             continue
         }
-        $deprecatedInTemplate[$templatePolicyName] = $true
-    }
+        $templatePolicies[$templatePolicyName] = $node
 
-    foreach ($tagMatch in [regex]::Matches($admx, '<policy\b[^>]*>')) {
-        $tag = $tagMatch.Value
-        $nameMatch = [regex]::Match($tag, '\bname="([^"]+)"')
-        if (-not $nameMatch.Success) {
-            continue
+        $parentCategory = $node.SelectSingleNode('parentCategory')
+        $parentRef = if ($null -ne $parentCategory) { [string]$parentCategory.GetAttribute('ref') } else { '' }
+        if ($parentRef -eq 'DeprecatedPolicies' -or [string]$node.GetAttribute('deprecated') -eq 'true') {
+            $deprecatedInTemplate[$templatePolicyName] = $true
         }
-
-        $templatePolicyName = $nameMatch.Groups[1].Value
-        if ($templatePolicyName -match '_recommended$' -or $tag -notmatch '\bdeprecated="true"') {
-            continue
-        }
-        $deprecatedInTemplate[$templatePolicyName] = $true
     }
 
     foreach ($policyName in @($manifest.policies.PSObject.Properties.Name)) {
-        if ($templatePolicies -notcontains $policyName) {
+        if (-not $templatePolicies.ContainsKey($policyName)) {
             throw "Manifest policy '$policyName' is not present in the official Brave ADMX template."
         }
         if ($deprecatedInTemplate.ContainsKey($policyName)) {
             throw "Manifest policy '$policyName' is marked deprecated in the official Brave ADMX template."
         }
+        Assert-AdmxValueType -PolicyName $policyName -Policy $manifest.policies.$policyName -Node $templatePolicies[$policyName]
     }
 
     $deprecatedPolicyNames = @()
@@ -97,7 +203,7 @@ try {
         $deprecatedPolicyNames = @($manifest.deprecatedPolicies)
     }
     foreach ($policyName in $deprecatedPolicyNames) {
-        if ($templatePolicies -contains $policyName -and -not $deprecatedInTemplate.ContainsKey($policyName)) {
+        if ($templatePolicies.ContainsKey($policyName) -and -not $deprecatedInTemplate.ContainsKey($policyName)) {
             throw "Manifest deprecatedPolicies entry '$policyName' is still present in the official Brave ADMX template without a DeprecatedPolicies category."
         }
     }
@@ -113,4 +219,4 @@ finally {
     $zip.Dispose()
 }
 
-Write-Host "Latest Brave template validation passed for $($manifest.policyTemplateVersion)."
+Write-Host "Latest Brave template validation passed for $templateVersion$versionNote."
