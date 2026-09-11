@@ -71,6 +71,8 @@ Preview the default cleanup first:
 .\Invoke-BraveDebloat.ps1 -Preset Extreme
 ```
 
+Each `[dry-run]` line ends with the current state of that policy when the target can be read: `Currently not set.`, `Currently 0.`, or `Already set, no change.` The closing summary counts how many values are already set, so a second preview after an apply run shows what still differs.
+
 Read the output. If it looks right, apply it:
 
 ```powershell
@@ -111,6 +113,12 @@ Run a read-only health check:
 .\Invoke-BraveDebloat.ps1 -Doctor
 ```
 
+Print the tool version, the Brave policy template version it was validated against, and your PowerShell version for bug reports:
+
+```powershell
+.\Invoke-BraveDebloat.ps1 -Version
+```
+
 List backups or preview retention cleanup:
 
 ```powershell
@@ -119,7 +127,7 @@ List backups or preview retention cleanup:
 .\Invoke-BraveDebloat.ps1 -KeepLatestBackups 10
 ```
 
-Add `-Apply` only after the preview lists the backups you expect to delete.
+Add `-Apply` only after the preview lists the backups you expect to delete. Pruning a backup also removes the profile `Preferences` copies that belong only to it.
 
 Apply the default cleanup and lock a safe Shields baseline:
 
@@ -177,9 +185,9 @@ Examples:
 .\Invoke-BraveDebloat.ps1 -Platform Android -OnlyFeature Rewards -ExportPolicyPath .\brave-android-mdm.json
 ```
 
-`-ExportPolicyPath` picks the format from the platform and file extension: `.reg` for Windows registry policies, `.json` for Linux and Android, `.plist` for macOS, and `.mobileconfig` for iOS/iPadOS. Exports and previews never write to the policy target, so they do not need an elevated session.
+`-ExportPolicyPath` picks the format from the platform and file extension: `.reg` for Windows registry policies, `.json` for Linux and Android, `.plist` for macOS, and `.mobileconfig` for iOS/iPadOS. Exports and previews never write to the policy target, so they do not need an elevated session. If `-Apply` is present together with `-ExportPolicyPath`, only the export file is written and `-Apply` is ignored with a warning.
 
-Use `-PolicyPath` when testing, or when your managed Linux or macOS machine-wide policy file lives somewhere custom. It has no effect on Windows registry or macOS `defaults` targets, and the script says so.
+Use `-PolicyPath` when testing, or when your managed Linux or macOS machine-wide policy file lives somewhere custom. It has no effect on Windows registry or macOS `defaults` targets, and the script says so. The path is recorded in full in backups, so a later restore matches even when you pass it as a relative path from another folder.
 
 ## Brave Channels
 
@@ -236,7 +244,7 @@ Some cosmetic cleanup lives in each Brave profile instead. Close Brave first, th
 .\Invoke-BraveDebloat.ps1 -Preset Extreme -IncludeProfilePreferences -Apply
 ```
 
-If Brave is running, profile preference cleanup is skipped. This avoids writing files that Brave may overwrite. Restores that include profile files stop for the same reason until Brave is closed.
+If Brave is running, profile preference cleanup is skipped. This avoids writing files that Brave may overwrite. Restores that include profile files stop for the same reason until Brave is closed. A preview tells you up front when Brave is running, and when a selected feature has profile patches that `-IncludeProfilePreferences` would add.
 
 Preferences files are read and written as UTF-8 without a byte order mark on every PowerShell version, so profile names and site entries with non-ASCII characters are preserved.
 
@@ -256,7 +264,7 @@ Apply a restore:
 .\Invoke-BraveDebloat.ps1 -UndoFromBackup .\backups\BraveDebloater-YYYYMMDD-HHMMSS-fff.json -Apply
 ```
 
-Restore validates the backup before it writes. Registry restores are limited to Brave policy keys. Profile file restores are limited to `Preferences` files under the selected `-ProfileRoot`.
+Restore validates the backup before it writes. Registry restores are limited to Brave policy keys, the recorded policy kind must match the recorded path, and Linux JSON or macOS values are written back with the exact type the backup recorded. Profile file restores are limited to `Preferences` files under the selected `-ProfileRoot`; each backup keeps its own copies under `backups/profile-files/<backup-name>/`.
 
 ## Machine-Wide Mode
 
@@ -305,6 +313,8 @@ Validate against a downloaded Brave policy template zip:
 ```powershell
 .\scripts\Test-LatestPolicyTemplates.ps1 -TemplateZipPath .\policy_templates.zip
 ```
+
+A zip newer than the recorded template version passes with a warning, because Brave's `latest` download changes with every release. Add `-RequireVersionMatch` before a release so the recorded version is exact. The check also confirms each manifest value fits the ADMX definition (boolean, enum, integer, or text).
 
 Update the recorded template version after downloading a newer official zip:
 

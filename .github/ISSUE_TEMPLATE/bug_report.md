@@ -32,7 +32,7 @@ A clear and concise description of what happened instead.
  - Windows version:
  - PowerShell version (`$PSVersionTable.PSVersion`):
  - Brave version:
- - BraveDebloater commit or version:
+ - BraveDebloater version (`.\Invoke-BraveDebloat.ps1 -Version`) or commit:
  - Scope used: `CurrentUser` or `LocalMachine`
 
 **Backup**
