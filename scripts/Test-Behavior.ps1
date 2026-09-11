@@ -1139,6 +1139,7 @@ try {
         New-Item -ItemType Directory -Path (Join-Path $tree 'src') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $tree 'Invoke-BraveDebloat.ps1') -Value "`$ToolVersion = '$Version'" -Encoding UTF8
         Set-Content -LiteralPath (Join-Path $tree "src/Release-$Version.ps1") -Value '# release file' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $tree 'LICENSE') -Value 'MIT' -Encoding ASCII
         $archivePath = Join-Path $Folder "BraveDebloater-v$Version.zip"
         [System.IO.Compression.ZipFile]::CreateFromDirectory($treeRoot, $archivePath)
         $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -1176,8 +1177,9 @@ try {
     }
 
     # A failed upgrade must leave the previous install intact. Windows blocks moving a file that is open
-    # without FileShare.Delete, which fails the swap after staging; elsewhere a read-only destination fails
-    # the staging copy before anything is touched. Root ignores permissions, so that case is skipped.
+    # without FileShare.Delete, which fails the swap after staging (LICENSE is only moved, never read, so
+    # the lock cannot trip the version detection first); elsewhere a read-only destination fails the
+    # staging copy before anything is touched. Root ignores permissions, so that case is skipped.
     $rollbackDestination = Join-Path $installRoot 'Rollback'
     & $installScriptPath -ArchivePath $firstArchive -Destination $rollbackDestination *> $null
     New-Item -ItemType Directory -Path (Join-Path $rollbackDestination 'backups') -Force | Out-Null
@@ -1185,7 +1187,7 @@ try {
     $rollbackLock = $null
     $rollbackReadOnly = $false
     if ($env:OS -eq 'Windows_NT') {
-        $rollbackLock = [System.IO.File]::Open((Join-Path $rollbackDestination 'Invoke-BraveDebloat.ps1'), [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+        $rollbackLock = [System.IO.File]::Open((Join-Path $rollbackDestination 'LICENSE'), [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
     }
     elseif ((& id -u) -ne '0') {
         & chmod 555 $rollbackDestination
@@ -1208,10 +1210,10 @@ try {
             }
         }
         if ($null -ne $rollbackLock) {
-            Assert-TextContains -Text $rollbackMessage -Expected 'The previous files were restored and nothing changed.' -Context 'install.ps1 failed swap'
+            Assert-TextContains -Text $rollbackMessage -Expected 'The previous files were restored and nothing changed.' -Context "install.ps1 failed swap (got: $rollbackMessage)"
         }
         else {
-            Assert-TextContains -Text $rollbackMessage -Expected 'The existing files were not touched.' -Context 'install.ps1 failed staging copy'
+            Assert-TextContains -Text $rollbackMessage -Expected 'The existing files were not touched.' -Context "install.ps1 failed staging copy (got: $rollbackMessage)"
         }
         if ((Get-Content -LiteralPath (Join-Path $rollbackDestination 'Invoke-BraveDebloat.ps1') -Raw) -notmatch '9\.9\.9') {
             throw 'install.ps1 left a failed upgrade half applied (entrypoint changed).'
