@@ -33,6 +33,12 @@ jobs:
         shell: pwsh
         run: ./scripts/Test-Behavior.ps1
 
+      - name: Install PowerShell test tools
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -SkipPublisherCheck
+
       - name: Run Pester tests
         shell: pwsh
         run: Invoke-Pester -Path ./tests -CI
