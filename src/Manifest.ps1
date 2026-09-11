@@ -128,13 +128,17 @@ function Assert-FeatureNames {
 function Get-NormalizedFeatureName {
     param([string[]]$Names)
 
+    # `powershell -File script.ps1 -ExcludeFeature News,LeoAI` (and the BraveDebloat.exe launcher)
+    # hand over the literal string "News,LeoAI", so comma-separated entries are split here too.
     $normalized = New-Object System.Collections.Generic.List[string]
     foreach ($name in @($Names)) {
-        $trimmed = ([string]$name).Trim()
-        if ([string]::IsNullOrWhiteSpace($trimmed)) {
-            continue
+        foreach ($part in (([string]$name) -split ',')) {
+            $trimmed = $part.Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed)) {
+                continue
+            }
+            Add-StringIfMissing -List $normalized -Value $trimmed
         }
-        Add-StringIfMissing -List $normalized -Value $trimmed
     }
     return $normalized.ToArray()
 }
