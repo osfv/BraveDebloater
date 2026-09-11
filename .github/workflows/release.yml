@@ -6,17 +6,24 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  # The same checks as CI run against the tagged commit itself, so a tag pushed before CI
+  # finished, or on a commit that never went through a PR, cannot publish an unverified release.
+  validate:
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        with:
-          fetch-depth: 0
 
       - name: Validate manifest and script syntax
         shell: pwsh
@@ -26,9 +33,41 @@ jobs:
         shell: pwsh
         run: ./scripts/Test-Behavior.ps1
 
+      - name: Run Pester tests
+        shell: pwsh
+        run: Invoke-Pester -Path ./tests -CI
+
       - name: Dry-run the Extreme preset
         shell: pwsh
         run: ./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields
+
+  windows-powershell:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Validate Windows PowerShell 5.1 compatibility
+        shell: powershell
+        run: |
+          ./scripts/Test-PolicyManifest.ps1
+          ./scripts/Test-Behavior.ps1
+          ./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields
+
+  publish:
+    needs:
+      - validate
+      - windows-powershell
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          fetch-depth: 0
 
       - name: Check the tag matches the tool version and changelog
         shell: pwsh
@@ -80,10 +119,13 @@ jobs:
             ''
             '## Validation'
             ''
+            'Run against this tag before publishing, on Windows, Ubuntu, and macOS:'
+            ''
             '- `./scripts/Test-PolicyManifest.ps1`'
             '- `./scripts/Test-Behavior.ps1`'
+            '- `Invoke-Pester -Path ./tests`'
             '- `./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields`'
-            '- Windows PowerShell 5.1 compatibility checks (CI on the tagged commit)'
+            '- Windows PowerShell 5.1 compatibility checks'
             ''
             '## Verify the download'
             ''
