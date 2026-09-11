@@ -753,6 +753,24 @@ try {
         throw 'Backup prune removed a profile Preferences copy that belongs to a kept backup.'
     }
 
+    # A pruned backup that points at another backup's Preferences copy must not take it along.
+    $decoyBackup = Join-Path $collisionBackupDirectory 'BraveDebloater-20000101-000000-000.json'
+    [ordered]@{
+        schemaVersion = 1
+        platform = 'Linux'
+        policyKind = 'JsonFile'
+        registryPath = $collisionPolicyPath
+        policies = @()
+        profileFiles = @([ordered]@{ backupPath = $secondProfileBackup; originalPath = $collisionPreferences })
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $decoyBackup -Encoding UTF8
+    (Get-Item -LiteralPath $decoyBackup).LastWriteTime = (Get-Date).AddDays(-30)
+    $decoyPruneOutput = (& $scriptPath -BackupDirectory $collisionBackupDirectory -KeepLatestBackups 1 -Apply *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $decoyPruneOutput -Expected 'Removed backup BraveDebloater-20000101-000000-000.json.' -Context 'decoy backup prune output'
+    Assert-TextDoesNotContain -Text $decoyPruneOutput -Unexpected 'Removed profile backup' -Context 'decoy backup prune output'
+    if (-not (Test-Path -LiteralPath $secondProfileBackup)) {
+        throw 'Pruning a backup removed a profile Preferences copy stored under another backup''s folder.'
+    }
+
     # Profile paths with wildcard characters must be handled literally on every PowerShell version.
     $bracketProfileRoot = Join-Path $tempRoot 'Bracket [Profile] Root'
     $bracketProfileDirectory = Join-Path $bracketProfileRoot 'Profile [1]'
@@ -802,6 +820,33 @@ try {
     }
     if (Test-Path -LiteralPath (Join-Path (Get-Location).Path 'HKEY_CURRENT_USER')) {
         throw 'Restore wrote a registry-named file into the working directory.'
+    }
+
+    # File kinds only pair with their own platform's default path, so JSON is never written into the
+    # macOS managed plist and `defaults` never targets the Linux managed JSON file.
+    $crossKindCases = @(
+        @{ Kind = 'JsonFile'; Path = '/Library/Managed Preferences/com.brave.Browser.plist' },
+        @{ Kind = 'MacOSPlist'; Path = '/etc/brave/policies/managed/BraveDebloater.json' }
+    )
+    foreach ($crossKindCase in $crossKindCases) {
+        $crossKindBackup = Join-Path $tempRoot "cross-kind-$($crossKindCase.Kind).json"
+        [ordered]@{
+            schemaVersion = 1
+            policyKind = $crossKindCase.Kind
+            registryPath = $crossKindCase.Path
+            policies = @()
+            profileFiles = @()
+        } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $crossKindBackup -Encoding UTF8
+        $crossKindRejected = $false
+        try {
+            & $scriptPath -UndoFromBackup $crossKindBackup | Out-Null
+        }
+        catch {
+            $crossKindRejected = $_.Exception.Message -match 'does not match its policy path'
+        }
+        if (-not $crossKindRejected) {
+            throw "Restore accepted a $($crossKindCase.Kind) backup that points at $($crossKindCase.Path)."
+        }
     }
 
     $unknownKindBackup = Join-Path $tempRoot 'unknown-kind-backup.json'

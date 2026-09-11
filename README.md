@@ -264,7 +264,7 @@ Apply a restore:
 .\Invoke-BraveDebloat.ps1 -UndoFromBackup .\backups\BraveDebloater-YYYYMMDD-HHMMSS-fff.json -Apply
 ```
 
-Restore validates the backup before it writes. Registry restores are limited to Brave policy keys, the recorded policy kind must match the recorded path, and Linux JSON or macOS values are written back with the exact type the backup recorded. Profile file restores are limited to `Preferences` files under the selected `-ProfileRoot`; each backup keeps its own copies under `backups/profile-files/<backup-name>/`.
+Restore validates the backup before it writes. Registry restores are limited to Brave policy keys, the recorded policy kind must match the recorded path (a Linux JSON backup only restores to the Linux managed file or your `-PolicyPath`, a macOS plist backup only to the managed plist or your `-PolicyPath`), and Linux JSON or macOS values are written back with the exact type the backup recorded. Profile file restores are limited to `Preferences` files under the selected `-ProfileRoot`; each backup keeps its own copies under `backups/profile-files/<backup-name>/`, and pruning only deletes copies inside the pruned backup's own folder.
 
 ## Machine-Wide Mode
 

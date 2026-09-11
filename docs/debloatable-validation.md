@@ -58,7 +58,7 @@ It checks that:
 
 - the zip `VERSION` is not older than the manifest version. A newer zip passes with a warning because the `latest` download moves with every Brave release; pass `-RequireVersionMatch` for release checks that must match exactly;
 - every manifest policy exists in `windows/admx/brave.admx` and is not under `DeprecatedPolicies`;
-- every manifest `DWord` value fits the ADMX definition: `0`/`1` only for boolean policies (`enabledValue`/`disabledValue`), and other values only when listed as an `enum` item or allowed by a `decimal` element. This matters because the Linux JSON and macOS plist writers emit `0`/`1` as booleans, which Brave rejects for integer policies;
+- every manifest `DWord` value fits the ADMX definition: `0`/`1` only for boolean policies (`enabledValue`/`disabledValue`), and other values only when listed as an `enum` item or inside the `minValue`/`maxValue` range of a `decimal` element. This matters because the Linux JSON and macOS plist writers emit `0`/`1` as booleans, which Brave rejects for integer policies;
 - every manifest `String` policy is a `text` element in the ADMX;
 - every `deprecatedPolicies` name is absent from the ADMX template, or still present only under `DeprecatedPolicies` / `deprecated="true"`;
 - every iOS allow-listed policy is defined in the manifest.
