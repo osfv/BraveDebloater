@@ -208,6 +208,32 @@ foreach ($feature in $features) {
     }
 }
 
+if ($null -eq $manifest.PSObject.Properties['dnsControl']) {
+    throw 'Manifest is missing dnsControl.'
+}
+foreach ($dnsPolicyName in @([string]$manifest.dnsControl.modePolicy, [string]$manifest.dnsControl.templatesPolicy)) {
+    if (-not $policies.ContainsKey($dnsPolicyName)) {
+        throw "Manifest dnsControl references undefined policy '$dnsPolicyName'."
+    }
+    if ([string]$policies[$dnsPolicyName].type -ne 'String') {
+        throw "Manifest dnsControl policy '$dnsPolicyName' must be a String policy."
+    }
+    foreach ($presetName in $presets.Keys) {
+        if ((Resolve-Preset -Name $presetName -Presets $presets) -contains $dnsPolicyName) {
+            throw "Preset '$presetName' must not include DNS control policy '$dnsPolicyName'; DNS is opt-in through -DnsOverHttps."
+        }
+    }
+}
+$dnsModes = @($manifest.dnsControl.modes.PSObject.Properties)
+if ($dnsModes.Count -eq 0) {
+    throw 'Manifest dnsControl.modes must list at least one mode.'
+}
+foreach ($dnsMode in $dnsModes) {
+    if ($dnsMode.Name -eq 'Unmanaged' -or [string]::IsNullOrWhiteSpace([string]$dnsMode.Value)) {
+        throw "Manifest dnsControl mode '$($dnsMode.Name)' is reserved or has a blank value."
+    }
+}
+
 foreach ($patch in @($manifest.profilePreferencePatches)) {
     if ([string]::IsNullOrWhiteSpace([string]$patch.path)) {
         throw 'Profile patch is missing a path.'

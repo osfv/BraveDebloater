@@ -1006,6 +1006,87 @@ try {
     Assert-TextContains -Text $doctorKindOutput -Expected 'String' -Context 'Doctor JSON kind output'
     Assert-TextDoesNotContain -Text $doctorKindOutput -Unexpected 'CurrentUser policies:' -Context 'Doctor Linux -PolicyPath output'
 
+    # DNS control is opt-in and never part of a preset.
+    $defaultDryRun = (& $scriptPath -Platform Linux -PolicyPath (Join-Path $tempRoot 'dns-absent.json') *>&1 | Out-String -Width 4096)
+    Assert-TextDoesNotContain -Text $defaultDryRun -Unexpected 'DnsOverHttps' -Context 'default preset dry-run'
+
+    $dnsPolicyPath = Join-Path $tempRoot 'dns-policy.json'
+    $dnsBackupDirectory = Join-Path $tempRoot 'DnsBackups'
+    $dnsResolver = 'https://dns.quad9.net/dns-query'
+    $dnsSecurePreview = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates $dnsResolver *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsSecurePreview -Expected "DNS over HTTPS: Secure with resolver $dnsResolver." -Context 'DNS secure preview'
+    Assert-TextContains -Text $dnsSecurePreview -Expected 'Would set DnsOverHttpsMode = secure' -Context 'DNS secure preview'
+    Assert-TextContains -Text $dnsSecurePreview -Expected "Would set DnsOverHttpsTemplates = $dnsResolver" -Context 'DNS secure preview'
+    Assert-TextContains -Text $dnsSecurePreview -Expected '3 policy value(s) planned' -Context 'DNS secure preview summary'
+    if (Test-Path -LiteralPath $dnsPolicyPath) {
+        throw 'DNS control dry-run wrote the policy file.'
+    }
+
+    & $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates $dnsResolver -BackupDirectory $dnsBackupDirectory -Apply *>&1 | Out-Null
+    $dnsAppliedJson = Get-Content -LiteralPath $dnsPolicyPath -Raw | ConvertFrom-Json
+    if ([string]$dnsAppliedJson.DnsOverHttpsMode -ne 'secure' -or [string]$dnsAppliedJson.DnsOverHttpsTemplates -ne $dnsResolver) {
+        throw 'Apply did not write the DNS-over-HTTPS mode and resolver template as strings.'
+    }
+
+    # Switching to a mode without templates removes a leftover custom resolver.
+    $dnsAutomaticPreview = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Automatic *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsAutomaticPreview -Expected 'Would set DnsOverHttpsMode = automatic' -Context 'DNS automatic preview'
+    Assert-TextContains -Text $dnsAutomaticPreview -Expected 'Currently secure.' -Context 'DNS automatic preview'
+    Assert-TextContains -Text $dnsAutomaticPreview -Expected 'Would remove DnsOverHttpsTemplates so Brave settings control it again.' -Context 'DNS automatic preview'
+    Assert-TextContains -Text $dnsAutomaticPreview -Expected '1 DNS policy value(s) to remove' -Context 'DNS automatic preview summary'
+    $dnsAutomaticApply = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Automatic -BackupDirectory $dnsBackupDirectory -Apply *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsAutomaticApply -Expected 'Removed 1 DNS policy value(s).' -Context 'DNS automatic apply'
+    $dnsAutomaticJson = Get-Content -LiteralPath $dnsPolicyPath -Raw | ConvertFrom-Json
+    if ([string]$dnsAutomaticJson.DnsOverHttpsMode -ne 'automatic' -or $null -ne $dnsAutomaticJson.PSObject.Properties['DnsOverHttpsTemplates']) {
+        throw 'Switching to Automatic did not update the mode and remove the resolver template.'
+    }
+
+    # Unmanaged removes both policies; the backup taken first restores the previous state.
+    $dnsUnmanagedApply = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Unmanaged -BackupDirectory $dnsBackupDirectory -Apply *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsUnmanagedApply -Expected 'DNS over HTTPS: Unmanaged.' -Context 'DNS unmanaged apply'
+    Assert-TextContains -Text $dnsUnmanagedApply -Expected 'Removed DnsOverHttpsMode.' -Context 'DNS unmanaged apply'
+    $dnsUnmanagedJson = Get-Content -LiteralPath $dnsPolicyPath -Raw | ConvertFrom-Json
+    if ($null -ne $dnsUnmanagedJson.PSObject.Properties['DnsOverHttpsMode'] -or $null -ne $dnsUnmanagedJson.PSObject.Properties['DnsOverHttpsTemplates']) {
+        throw 'Unmanaged did not remove the DNS-over-HTTPS policies.'
+    }
+    $dnsBackups = @(Get-ChildItem -LiteralPath $dnsBackupDirectory -Filter 'BraveDebloater-*.json' | Sort-Object Name)
+    if ($dnsBackups.Count -ne 3) {
+        throw "Expected 3 DNS control backups, found $($dnsBackups.Count)."
+    }
+    & $scriptPath -UndoFromBackup $dnsBackups[1].FullName -PolicyPath $dnsPolicyPath -Apply *>&1 | Out-Null
+    $dnsRestoredJson = Get-Content -LiteralPath $dnsPolicyPath -Raw | ConvertFrom-Json
+    if ([string]$dnsRestoredJson.DnsOverHttpsMode -ne 'secure' -or [string]$dnsRestoredJson.DnsOverHttpsTemplates -ne $dnsResolver) {
+        throw 'Restoring the pre-Automatic backup did not bring back the secure mode and resolver template.'
+    }
+
+    # .reg exports carry the string policies.
+    $dnsRegExportPath = Join-Path $tempRoot 'dns-export.reg'
+    & $scriptPath -Platform Windows -OnlyFeature Rewards -ProfileRoot $missingProfileRoot -DnsOverHttps Secure -DnsOverHttpsTemplates $dnsResolver -ExportPolicyPath $dnsRegExportPath *>&1 | Out-Null
+    $dnsRegDocument = [System.IO.File]::ReadAllText($dnsRegExportPath, [System.Text.Encoding]::Unicode)
+    Assert-TextContains -Text $dnsRegDocument -Expected '"DnsOverHttpsMode"="secure"' -Context 'DNS .reg export'
+    Assert-TextContains -Text $dnsRegDocument -Expected "`"DnsOverHttpsTemplates`"=`"$dnsResolver`"" -Context 'DNS .reg export'
+
+    # Invalid DNS control combinations stop before anything is planned.
+    $dnsErrorCases = @(
+        @{ Arguments = @{ DnsOverHttps = 'Secure' }; Expected = 'needs -DnsOverHttpsTemplates' },
+        @{ Arguments = @{ DnsOverHttpsTemplates = $dnsResolver }; Expected = 'needs -DnsOverHttps Secure or Automatic' },
+        @{ Arguments = @{ DnsOverHttps = 'Off'; DnsOverHttpsTemplates = $dnsResolver }; Expected = 'has no effect with -DnsOverHttps Off' },
+        @{ Arguments = @{ DnsOverHttps = 'Unmanaged'; DnsOverHttpsTemplates = $dnsResolver }; Expected = 'cannot be combined with -DnsOverHttps Unmanaged' },
+        @{ Arguments = @{ DnsOverHttps = 'Secure'; DnsOverHttpsTemplates = 'http://insecure.invalid/dns-query' }; Expected = 'is not an https:// URI' },
+        @{ Arguments = @{ DnsOverHttps = 'Secure'; DnsOverHttpsTemplates = 'https://dns.example/dns query' }; Expected = 'is not an https:// URI' }
+    )
+    foreach ($dnsErrorCase in $dnsErrorCases) {
+        $dnsErrorMessage = ''
+        $dnsErrorArguments = $dnsErrorCase.Arguments
+        try {
+            & $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards @dnsErrorArguments | Out-Null
+        }
+        catch {
+            $dnsErrorMessage = $_.Exception.Message
+        }
+        Assert-TextContains -Text $dnsErrorMessage -Expected $dnsErrorCase.Expected -Context "DNS control error for $(($dnsErrorArguments.GetEnumerator() | ForEach-Object { "-$($_.Key) $($_.Value)" }) -join ' ')"
+    }
+
     Write-Host 'Behavior checks passed.'
 }
 finally {
