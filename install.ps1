@@ -178,6 +178,16 @@ function Install-BraveDebloater {
         }
     }
 
+    function Move-FileSystemEntry {
+        param([string]$Source, [string]$Target)
+        if ([System.IO.Directory]::Exists($Source)) {
+            [System.IO.Directory]::Move($Source, $Target)
+        }
+        else {
+            [System.IO.File]::Move($Source, $Target)
+        }
+    }
+
     if ($PSVersionTable.PSVersion.Major -lt 6) {
         [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
     }
@@ -266,21 +276,62 @@ function Install-BraveDebloater {
             [void][System.IO.Directory]::CreateDirectory($Destination)
         }
 
-        # Replace only the entries the release ships. backups/ and any files you added stay in place.
-        foreach ($entry in [System.IO.Directory]::GetFileSystemEntries($contentRoot)) {
-            $target = Join-Path $Destination ([System.IO.Path]::GetFileName($entry))
-            if ([System.IO.Directory]::Exists($target)) {
-                [System.IO.Directory]::Delete($target, $true)
+        # Only the entries the release ships are replaced; backups/ and any files you added stay in place.
+        # The new tree is copied completely into a staging folder inside the destination first (the step
+        # that can run out of disk or hit a locked file), then swapped in with same-volume renames. A
+        # failure during the swap moves the previous files back, so the install never ends up half done.
+        $stageId = [guid]::NewGuid().ToString('N')
+        $newStage = Join-Path $Destination ".install-new-$stageId"
+        $oldStage = Join-Path $Destination ".install-old-$stageId"
+        try {
+            Copy-DirectoryTree -Source $contentRoot -Target $newStage
+        }
+        catch {
+            if ([System.IO.Directory]::Exists($newStage)) {
+                [System.IO.Directory]::Delete($newStage, $true)
             }
-            elseif ([System.IO.File]::Exists($target)) {
-                [System.IO.File]::Delete($target)
+            throw "Copying the release into $Destination failed ($($_.Exception.Message)). The existing files were not touched."
+        }
+
+        $entryNames = @([System.IO.Directory]::GetFileSystemEntries($newStage) | ForEach-Object { [System.IO.Path]::GetFileName($_) })
+        $movedOut = New-Object System.Collections.Generic.List[string]
+        $movedIn = New-Object System.Collections.Generic.List[string]
+        try {
+            [void][System.IO.Directory]::CreateDirectory($oldStage)
+            foreach ($entryName in $entryNames) {
+                $target = Join-Path $Destination $entryName
+                if ([System.IO.Directory]::Exists($target) -or [System.IO.File]::Exists($target)) {
+                    Move-FileSystemEntry -Source $target -Target (Join-Path $oldStage $entryName)
+                    [void]$movedOut.Add($entryName)
+                }
+                Move-FileSystemEntry -Source (Join-Path $newStage $entryName) -Target $target
+                [void]$movedIn.Add($entryName)
             }
-            if ([System.IO.Directory]::Exists($entry)) {
-                Copy-DirectoryTree -Source $entry -Target $target
+        }
+        catch {
+            $swapError = $_.Exception.Message
+            try {
+                foreach ($entryName in $movedIn) {
+                    Move-FileSystemEntry -Source (Join-Path $Destination $entryName) -Target (Join-Path $newStage $entryName)
+                }
+                foreach ($entryName in $movedOut) {
+                    Move-FileSystemEntry -Source (Join-Path $oldStage $entryName) -Target (Join-Path $Destination $entryName)
+                }
             }
-            else {
-                [System.IO.File]::Copy($entry, $target, $true)
+            catch {
+                throw "Replacing files in $Destination failed ($swapError) and restoring the previous files also failed ($($_.Exception.Message)). The previous files are in $oldStage; move them back by hand, then delete $newStage."
             }
+            throw "Replacing files in $Destination failed ($swapError). The previous files were restored and nothing changed. Close programs that use that folder, then run the installer again."
+        }
+        finally {
+            foreach ($stage in @($newStage, $oldStage)) {
+                if ([System.IO.Directory]::Exists($stage) -and @([System.IO.Directory]::GetFileSystemEntries($stage)).Count -eq 0) {
+                    [System.IO.Directory]::Delete($stage)
+                }
+            }
+        }
+        if ([System.IO.Directory]::Exists($oldStage)) {
+            [System.IO.Directory]::Delete($oldStage, $true)
         }
 
         if ($isWindowsHost) {

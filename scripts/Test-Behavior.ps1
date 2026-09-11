@@ -1175,6 +1175,58 @@ try {
         throw 'install.ps1 upgrade left a stale file inside a replaced folder.'
     }
 
+    # A failed upgrade must leave the previous install intact. Windows blocks moving a file that is open
+    # without FileShare.Delete, which fails the swap after staging; elsewhere a read-only destination fails
+    # the staging copy before anything is touched. Root ignores permissions, so that case is skipped.
+    $rollbackDestination = Join-Path $installRoot 'Rollback'
+    & $installScriptPath -ArchivePath $firstArchive -Destination $rollbackDestination *> $null
+    New-Item -ItemType Directory -Path (Join-Path $rollbackDestination 'backups') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $rollbackDestination 'backups/keep.json') -Value '{}' -Encoding UTF8
+    $rollbackLock = $null
+    $rollbackReadOnly = $false
+    if ($env:OS -eq 'Windows_NT') {
+        $rollbackLock = [System.IO.File]::Open((Join-Path $rollbackDestination 'Invoke-BraveDebloat.ps1'), [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+    }
+    elseif ((& id -u) -ne '0') {
+        & chmod 555 $rollbackDestination
+        $rollbackReadOnly = $true
+    }
+    if ($null -ne $rollbackLock -or $rollbackReadOnly) {
+        $rollbackMessage = ''
+        try {
+            & $installScriptPath -ArchivePath $secondArchive -Destination $rollbackDestination *> $null
+        }
+        catch {
+            $rollbackMessage = $_.Exception.Message
+        }
+        finally {
+            if ($null -ne $rollbackLock) {
+                $rollbackLock.Dispose()
+            }
+            if ($rollbackReadOnly) {
+                & chmod 755 $rollbackDestination
+            }
+        }
+        if ($null -ne $rollbackLock) {
+            Assert-TextContains -Text $rollbackMessage -Expected 'The previous files were restored and nothing changed.' -Context 'install.ps1 failed swap'
+        }
+        else {
+            Assert-TextContains -Text $rollbackMessage -Expected 'The existing files were not touched.' -Context 'install.ps1 failed staging copy'
+        }
+        if ((Get-Content -LiteralPath (Join-Path $rollbackDestination 'Invoke-BraveDebloat.ps1') -Raw) -notmatch '9\.9\.9') {
+            throw 'install.ps1 left a failed upgrade half applied (entrypoint changed).'
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $rollbackDestination 'src/Release-9.9.9.ps1')) -or (Test-Path -LiteralPath (Join-Path $rollbackDestination 'src/Release-9.9.10.ps1'))) {
+            throw 'install.ps1 left a failed upgrade half applied (src changed).'
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $rollbackDestination 'backups/keep.json'))) {
+            throw 'install.ps1 lost backups during a failed upgrade.'
+        }
+        if (@(Get-ChildItem -LiteralPath $rollbackDestination -Force -Filter '.install-*').Count -ne 0) {
+            throw 'install.ps1 left staging folders behind after a failed upgrade.'
+        }
+    }
+
     $tamperedChecksumPath = Join-Path $installRoot 'tampered-SHA256SUMS.txt'
     Set-Content -LiteralPath $tamperedChecksumPath -Value ('{0}  BraveDebloater-v9.9.9.zip' -f ('0' * 64)) -Encoding ASCII
     $installErrorCases = @(
