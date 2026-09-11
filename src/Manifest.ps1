@@ -261,6 +261,99 @@ function Get-ProfilePatchFeatureIds {
     return $ids.ToArray()
 }
 
+function Get-DnsControlModeNames {
+    param([Parameter(Mandatory = $true)]$Manifest)
+
+    return @(@($Manifest.dnsControl.modes.PSObject.Properties | ForEach-Object { $_.Name }) + 'Unmanaged')
+}
+
+function Resolve-DnsControlPlan {
+    param(
+        [Parameter(Mandatory = $true)]$Manifest,
+        [Parameter(Mandatory = $true)][string]$Mode,
+        [string[]]$Templates = @(),
+        [Parameter(Mandatory = $true)][hashtable]$PolicyDefinitions
+    )
+
+    # Turns -DnsOverHttps/-DnsOverHttpsTemplates into concrete policy writes or removals. The
+    # manifest only names the policies and the mode strings; the values come from the user.
+    $control = $Manifest.dnsControl
+    $modePolicy = [string]$control.modePolicy
+    $templatesPolicy = [string]$control.templatesPolicy
+    foreach ($policyName in @($modePolicy, $templatesPolicy)) {
+        if (-not $PolicyDefinitions.ContainsKey($policyName)) {
+            throw "DNS control policy '$policyName' is missing from config/policies.json."
+        }
+    }
+
+    $cleanTemplates = New-Object System.Collections.Generic.List[string]
+    foreach ($template in @($Templates)) {
+        foreach ($part in ([string]$template -split '\s+')) {
+            if ([string]::IsNullOrWhiteSpace($part)) {
+                continue
+            }
+            if ($part -notmatch '^https://[^\s"]+$') {
+                throw "DNS-over-HTTPS template '$part' is not an https:// URI. Use the resolver's DoH URL, for example https://dns.quad9.net/dns-query."
+            }
+            Add-StringIfMissing -List $cleanTemplates -Value $part
+        }
+    }
+
+    $definitions = [ordered]@{}
+    $removeNames = @()
+    if ($Mode -eq 'Unmanaged') {
+        if ($cleanTemplates.Count -gt 0) {
+            throw '-DnsOverHttpsTemplates cannot be combined with -DnsOverHttps Unmanaged, which removes the DNS policies instead of setting them.'
+        }
+        $removeNames = @($modePolicy, $templatesPolicy)
+        $summary = 'Unmanaged. Both DNS-over-HTTPS policies are removed so Brave settings control DNS again.'
+    }
+    else {
+        $modeProperty = $control.modes.PSObject.Properties[$Mode]
+        if ($null -eq $modeProperty) {
+            throw "Unknown DNS-over-HTTPS mode '$Mode'. Use one of: $((Get-DnsControlModeNames -Manifest $Manifest) -join ', ')."
+        }
+        $modeValue = [string]$modeProperty.Value
+        if ($Mode -eq 'Off' -and $cleanTemplates.Count -gt 0) {
+            throw '-DnsOverHttpsTemplates has no effect with -DnsOverHttps Off. Use Secure or Automatic to set a custom resolver.'
+        }
+        if ($Mode -eq 'Secure' -and $cleanTemplates.Count -eq 0) {
+            throw '-DnsOverHttps Secure needs -DnsOverHttpsTemplates with at least one resolver URL, for example -DnsOverHttpsTemplates https://dns.quad9.net/dns-query.'
+        }
+
+        $definitions[$modePolicy] = New-DnsControlDefinition -Template $PolicyDefinitions[$modePolicy] -Value $modeValue
+        if ($cleanTemplates.Count -gt 0) {
+            $definitions[$templatesPolicy] = New-DnsControlDefinition -Template $PolicyDefinitions[$templatesPolicy] -Value ($cleanTemplates -join ' ')
+            $summary = "$Mode with resolver $($cleanTemplates -join ', ')."
+        }
+        else {
+            # Without templates, a leftover custom resolver from an earlier run would keep applying.
+            $removeNames = @($templatesPolicy)
+            $summary = if ($Mode -eq 'Off') { 'Off. Brave uses the system resolver without DNS-over-HTTPS.' } else { "$Mode. Brave upgrades to DNS-over-HTTPS when the system resolver supports it." }
+        }
+    }
+
+    return [pscustomobject]@{
+        Definitions = $definitions
+        RemoveNames = $removeNames
+        Summary = $summary
+    }
+}
+
+function New-DnsControlDefinition {
+    param(
+        [Parameter(Mandatory = $true)]$Template,
+        [Parameter(Mandatory = $true)][string]$Value
+    )
+
+    return [pscustomobject]@{
+        type = [string]$Template.type
+        value = $Value
+        category = [string]$Template.category
+        reason = [string]$Template.reason
+    }
+}
+
 function Assert-PolicySafety {
     param(
         [string[]]$PolicyNames,

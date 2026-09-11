@@ -22,6 +22,11 @@ param(
 
     [switch]$LockShields,
 
+    [ValidateSet('Off', 'Automatic', 'Secure', 'Unmanaged')]
+    [string]$DnsOverHttps,
+
+    [string[]]$DnsOverHttpsTemplates = @(),
+
     [switch]$Customize,
 
     [string[]]$OnlyFeature = @(),
@@ -199,6 +204,23 @@ foreach ($policyName in $policyNames) {
     }
 }
 
+# DNS control is opt-in: the DNS-over-HTTPS policies are only touched when -DnsOverHttps is given.
+$dnsPlan = $null
+$dnsRemovePolicyNames = New-Object System.Collections.Generic.List[string]
+if (-not [string]::IsNullOrWhiteSpace($DnsOverHttps)) {
+    $dnsPlan = Resolve-DnsControlPlan -Manifest $manifest -Mode $DnsOverHttps -Templates $DnsOverHttpsTemplates -PolicyDefinitions $policyDefinitions
+    foreach ($entry in $dnsPlan.Definitions.GetEnumerator()) {
+        $policyDefinitions[$entry.Key] = $entry.Value
+        Add-StringIfMissing -List $policyNames -Value $entry.Key
+    }
+    foreach ($name in $dnsPlan.RemoveNames) {
+        [void]$dnsRemovePolicyNames.Add($name)
+    }
+}
+elseif (@($DnsOverHttpsTemplates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+    throw '-DnsOverHttpsTemplates needs -DnsOverHttps Secure or Automatic to say how the resolver is used.'
+}
+
 Assert-PolicySafety -PolicyNames $policyNames.ToArray() -Manifest $manifest
 
 if ($ListFeatures) {
@@ -270,6 +292,9 @@ if ($LockShields) {
 else {
     Write-Step 'Shield baseline: not locked. This run will still refuse policies that disable or whitelist Brave Shields.'
 }
+if ($null -ne $dnsPlan) {
+    Write-Step "DNS over HTTPS: $($dnsPlan.Summary)"
+}
 if ($customFeatureRequested) {
     Write-Step "Custom features: $($selectedFeatureIds -join ', ')"
 }
@@ -299,10 +324,14 @@ if ($IncludeProfilePreferences -and $applyChanges -and $NoBackup) {
 }
 
 $obsoletePolicyNames = New-Object System.Collections.Generic.List[string]
+$dnsPresentRemovals = New-Object System.Collections.Generic.List[string]
 if ($policyTarget.Kind -ne 'MobileMDM') {
     try {
         foreach ($name in @(Get-PresentPolicyNames -Target $policyTarget -PolicyNames @(Get-DeprecatedPolicyNames -Manifest $manifest))) {
             [void]$obsoletePolicyNames.Add($name)
+        }
+        foreach ($name in @(Get-PresentPolicyNames -Target $policyTarget -PolicyNames $dnsRemovePolicyNames.ToArray())) {
+            [void]$dnsPresentRemovals.Add($name)
         }
     }
     catch {
@@ -318,6 +347,9 @@ foreach ($name in $policyNames) {
     [void]$backupPolicyNames.Add($name)
 }
 foreach ($name in $obsoletePolicyNames) {
+    Add-StringIfMissing -List $backupPolicyNames -Value $name
+}
+foreach ($name in $dnsPresentRemovals) {
     Add-StringIfMissing -List $backupPolicyNames -Value $name
 }
 
@@ -370,12 +402,32 @@ foreach ($policyName in $obsoletePolicyNames) {
     }
 }
 
+$removedDnsCount = 0
+foreach ($policyName in $dnsPresentRemovals) {
+    if (-not $applyChanges) {
+        Write-DryRun "Would remove $policyName so Brave settings control it again."
+        continue
+    }
+
+    if ($PSCmdlet.ShouldProcess($policyTarget.Path, "Remove DNS policy $policyName")) {
+        Remove-PolicyValue -Target $policyTarget -Name $policyName
+        $removedDnsCount++
+        Write-Step "Removed $policyName."
+    }
+}
+
 if ($IncludeProfilePreferences) {
     Invoke-ProfilePreferenceCleanup -Root $ProfileRoot -Manifest $manifest -BackupPath $backupPath -SelectedFeatureIds $selectedFeatureIds -UseFeatureFilter:$customFeatureRequested -DoApply:$applyChanges
 }
 
 $obsoletePlanSummary = if ($obsoletePolicyNames.Count -gt 0) { ", $($obsoletePolicyNames.Count) obsolete leftover(s) to remove" } else { '' }
 $obsoleteDoneSummary = if ($removedObsoleteCount -gt 0) { " Removed $removedObsoleteCount obsolete leftover(s)." } else { '' }
+if ($dnsPresentRemovals.Count -gt 0) {
+    $obsoletePlanSummary += ", $($dnsPresentRemovals.Count) DNS policy value(s) to remove"
+}
+if ($removedDnsCount -gt 0) {
+    $obsoleteDoneSummary += " Removed $removedDnsCount DNS policy value(s)."
+}
 $alreadySetSummary = if ($alreadySetCount -gt 0) { " ($alreadySetCount already set)" } else { '' }
 if (-not $applyChanges) {
     if ($isWhatIf) {
