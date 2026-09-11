@@ -321,18 +321,14 @@ function Install-BraveDebloater {
             catch {
                 throw "Replacing files in $Destination failed ($swapError) and restoring the previous files also failed ($($_.Exception.Message)). The previous files are in $oldStage; move them back by hand, then delete $newStage."
             }
+            # The previous files are back in place; the staged copy of the new release is ours to discard.
+            [System.IO.Directory]::Delete($newStage, $true)
+            [System.IO.Directory]::Delete($oldStage, $true)
             throw "Replacing files in $Destination failed ($swapError). The previous files were restored and nothing changed. Close programs that use that folder, then run the installer again."
         }
-        finally {
-            foreach ($stage in @($newStage, $oldStage)) {
-                if ([System.IO.Directory]::Exists($stage) -and @([System.IO.Directory]::GetFileSystemEntries($stage)).Count -eq 0) {
-                    [System.IO.Directory]::Delete($stage)
-                }
-            }
-        }
-        if ([System.IO.Directory]::Exists($oldStage)) {
-            [System.IO.Directory]::Delete($oldStage, $true)
-        }
+        # Success: the new staging folder is empty and the old one holds only replaced files.
+        [System.IO.Directory]::Delete($newStage, $true)
+        [System.IO.Directory]::Delete($oldStage, $true)
 
         if ($isWindowsHost) {
             Get-ChildItem -LiteralPath $Destination -Filter '*.ps1' -Recurse -File | Unblock-File
