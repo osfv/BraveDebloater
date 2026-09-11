@@ -229,12 +229,21 @@ foreach ($patch in @($manifest.profilePreferencePatches)) {
     }
 }
 
-$tokens = $null
-$parseErrors = $null
-[System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$tokens, [ref]$parseErrors) | Out-Null
-if ($parseErrors.Count -gt 0) {
-    $messages = $parseErrors | ForEach-Object { $_.Message }
-    throw "PowerShell parse errors in Invoke-BraveDebloat.ps1: $($messages -join '; ')"
+$scriptFiles = New-Object System.Collections.Generic.List[string]
+[void]$scriptFiles.Add($scriptPath)
+foreach ($folder in @('src', 'scripts', 'tests')) {
+    foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $root $folder) -Filter '*.ps1' -File | Sort-Object Name)) {
+        [void]$scriptFiles.Add($file.FullName)
+    }
+}
+foreach ($scriptFile in $scriptFiles) {
+    $tokens = $null
+    $parseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($scriptFile, [ref]$tokens, [ref]$parseErrors) | Out-Null
+    if ($parseErrors.Count -gt 0) {
+        $messages = $parseErrors | ForEach-Object { $_.Message }
+        throw "PowerShell parse errors in $(Split-Path -Leaf $scriptFile): $($messages -join '; ')"
+    }
 }
 
 Test-PolicyTemplateVersionUpdater
