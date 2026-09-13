@@ -38,7 +38,7 @@ PowerShell is the cross-platform runtime. The files it writes are native to each
 - It does not turn off Brave Shields, add Shield allowlists, or weaken Safe Browsing. The optional `-LockShields` add-on only enforces stricter Shields defaults.
 - It does not edit your hosts file, remove extensions, patch Brave binaries, or install anything into Brave.
 - It does not run hidden. Every policy it sets is listed in `brave://policy` with its value, and `-Doctor` reports the current state read-only.
-- It does not change anything without `-Apply`, and every apply run leaves a JSON backup that `-UndoFromBackup` restores.
+- It does not change anything without `-Apply`. Unless you use `-NoBackup` for a policy-only run, every apply run leaves a JSON backup that `-UndoFromBackup` can restore.
 
 ## What It Can Remove
 
