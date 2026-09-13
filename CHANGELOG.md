@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- README now has a "What It Does Not Do" safety list, a per-feature command table, and a short comparison of policies vs settings, gists, and Brave Origin.
 - Added `install.ps1`, a one-line installer: `irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1 | iex` downloads the latest release zip and `SHA256SUMS.txt`, stops on a checksum mismatch, extracts to `%LOCALAPPDATA%\Programs\BraveDebloater` or `~/.local/share/BraveDebloater`, keeps `backups/` and your own files when upgrading in place (the new files are staged completely first and swapped in with rollback, so a failed upgrade leaves the previous install intact), and prints the preview command. `-Version`, `-Destination`, and `-ArchivePath` (install from a downloaded zip, still verified) are available when the script is run from a script block or file. It never changes Brave.
 - Added a Scoop manifest at `packaging/scoop/bravedebloater.json` (`scoop install https://raw.githubusercontent.com/osfv/BraveDebloater/main/packaging/scoop/bravedebloater.json`) with a `bravedebloat` shim and persisted `backups/`.
 - Added winget packaging: `packaging/launcher/BraveDebloat.cs` is a small launcher that runs `Invoke-BraveDebloat.ps1` from its own folder with the given arguments (winget only accepts `.exe` portable commands), `scripts/Build-Launcher.ps1` compiles it with the C# compiler from .NET Framework, and `scripts/New-PackageManifests.ps1` writes `osfv.BraveDebloater` manifests (schema 1.10.0) plus the Scoop manifest from a release's `SHA256SUMS.txt`.
