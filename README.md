@@ -60,7 +60,7 @@ Optional DNS control (`-DnsOverHttps`) sets Brave's DNS-over-HTTPS mode to off, 
 
 ## Disable One Feature
 
-Each command previews first. Add `-Apply` to write the policy, then restart Brave. Restore with `-UndoFromBackup`.
+Each command previews first. Add `-Apply` to write the policy, then restart Brave. To undo, follow the complete preview and apply commands in [Restore](#restore).
 
 | I want to | Command | Policy set |
 | --- | --- | --- |
