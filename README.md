@@ -6,6 +6,7 @@
 ![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5391FE?style=flat-square&logo=powershell&logoColor=white)
 [![CI](https://img.shields.io/github/actions/workflow/status/osfv/BraveDebloater/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/osfv/BraveDebloater/actions/workflows/ci.yml)
+[![Stars](https://img.shields.io/github/stars/osfv/BraveDebloater?style=flat-square)](https://github.com/osfv/BraveDebloater/stargazers)
 [![License](https://img.shields.io/github/license/osfv/BraveDebloater?style=flat-square&label=license)](LICENSE)
 
 <p align="center">
@@ -27,9 +28,17 @@
 
 The script starts in preview mode. Nothing changes until you add `-Apply`.
 
-Before an apply run, BraveDebloater writes a backup unless you use `-NoBackup` for policy-only changes. It does not disable Brave updates, edit hosts files, remove extensions, turn off Brave Shields, or add Shield allowlists.
+Before an apply run, BraveDebloater writes a backup unless you use `-NoBackup` for policy-only changes.
 
 PowerShell is the cross-platform runtime. The files it writes are native to each platform: Windows registry policies, macOS defaults or plist payloads, and Linux JSON policy files.
+
+## What It Does Not Do
+
+- It does not disable Brave updates. Update policies are on the blocklist and the tool refuses to write them.
+- It does not turn off Brave Shields, add Shield allowlists, or weaken Safe Browsing. The optional `-LockShields` add-on only enforces stricter Shields defaults.
+- It does not edit your hosts file, remove extensions, patch Brave binaries, or install anything into Brave.
+- It does not run hidden. Every policy it sets is listed in `brave://policy` with its value, and `-Doctor` reports the current state read-only.
+- It does not change anything without `-Apply`, and every apply run leaves a JSON backup that `-UndoFromBackup` restores.
 
 ## What It Can Remove
 
@@ -48,6 +57,40 @@ Extra UI in the `Extreme` preset:
 Optional profile preference cleanup can also hide some new tab, sponsored background, and toolbar surfaces. That part edits per-profile `Preferences` JSON, so close Brave before applying it.
 
 Optional DNS control (`-DnsOverHttps`) sets Brave's DNS-over-HTTPS mode to off, automatic, or secure with a resolver you choose, or removes those policies again.
+
+## Disable One Feature
+
+Each command previews first. Add `-Apply` to write the policy, then restart Brave. Restore with `-UndoFromBackup`.
+
+| I want to | Command | Policy set |
+| --- | --- | --- |
+| Disable Brave Rewards and BAT prompts permanently | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Rewards` | `BraveRewardsDisabled` |
+| Remove the Brave Wallet icon and prompts | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Wallet` | `BraveWalletDisabled` |
+| Hide Brave VPN | `.\Invoke-BraveDebloat.ps1 -OnlyFeature VPN` | `BraveVPNDisabled` |
+| Turn off Leo AI (sidebar, address bar, context menu) | `.\Invoke-BraveDebloat.ps1 -OnlyFeature LeoAI` | `BraveAIChatEnabled` |
+| Remove Brave News from the new tab page | `.\Invoke-BraveDebloat.ps1 -OnlyFeature News` | `BraveNewsDisabled` |
+| Disable Brave Talk | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Talk` | `BraveTalkDisabled` |
+| Disable Playlist | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Playlist` | `BravePlaylistEnabled` |
+| Disable Email Aliases | `.\Invoke-BraveDebloat.ps1 -OnlyFeature EmailAliases` | `EmailAliasesEnabled` |
+| Stop Brave telemetry (P3A, stats ping, Web Discovery) | `.\Invoke-BraveDebloat.ps1 -OnlyFeature BraveTelemetry` | `BraveP3AEnabled`, `BraveStatsPingEnabled`, `BraveWebDiscoveryEnabled` |
+| Stop Chromium metrics and URL-keyed data collection | `.\Invoke-BraveDebloat.ps1 -OnlyFeature ChromiumTelemetry` | `MetricsReportingEnabled`, `UrlKeyedAnonymizedDataCollectionEnabled` |
+| Hide sponsored new tab backgrounds and cards | `.\Invoke-BraveDebloat.ps1 -OnlyFeature NewTabBackgrounds,NewTabCards -IncludeProfilePreferences` | `NTPCardsVisible` plus profile preferences |
+| Force secure DNS through a resolver of my choice | `.\Invoke-BraveDebloat.ps1 -DnsOverHttps Secure -DnsOverHttpsTemplates https://dns.quad9.net/dns-query` | `DnsOverHttpsMode`, `DnsOverHttpsTemplates` |
+
+Combine several with commas (`-OnlyFeature Rewards,Wallet,VPN,LeoAI`) or start from a preset and exclude what you want to keep. `-ListFeatures` prints every feature id.
+
+## Why Policies Instead of Settings
+
+Brave can reset or re-promote settings after updates. Enterprise policies stay enforced on every start, show up in `brave://policy`, and come off cleanly when you restore the backup.
+
+| Approach | Survives Brave updates | Visible in `brave://policy` | Undo | Touches binaries, hosts, or extensions |
+| --- | --- | --- | --- | --- |
+| **BraveDebloater policies** | Yes | Yes | Backup restore | No |
+| `brave://settings` toggles | Often reset or re-promoted | No | Manual | No |
+| A random `.reg` gist | Maybe | If the gist used policies | Only if you kept a copy | Sometimes |
+| Scripts that disable Shields or updates | Yes, but they weaken Brave | Yes | Painful | Sometimes |
+
+On Windows and macOS, Brave Origin is a paid stripped-down build. This tool keeps the Brave you already have and applies the same class of official policies for free.
 
 ## Install
 
@@ -263,7 +306,7 @@ Use `-Customize` for an interactive yes/no prompt for each cleanup.
 
 Use `-IncludeFeature` and `-ExcludeFeature` for repeatable commands. Names can be separated by spaces or commas, so `-ExcludeFeature News,LeoAI` also works through `powershell -File`, scheduled tasks, and the `BraveDebloat.exe` launcher, where PowerShell hands the list over as one string.
 
-Use `-OnlyFeature` when you want exactly the named cleanups without starting from a preset.
+Use `-OnlyFeature` when you want exactly the named cleanups without starting from a preset. Copy-ready examples are in [Disable One Feature](#disable-one-feature).
 
 Feature names are shown by `-ListFeatures`. Examples include `Rewards`, `Wallet`, `VPN`, `LeoAI`, `News`, `Talk`, `EmailAliases`, `Autofill`, `Translate`, and `GoogleSearchSidePanel`.
 
