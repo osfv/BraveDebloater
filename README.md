@@ -1,4 +1,4 @@
-# BraveDebloater
+# BraveDebloater <a href="https://www.producthunt.com/products/bravedebloater?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-bravedebloater" target="_blank" rel="noopener noreferrer"><img alt="BraveDebloater - A safer, reversible debloater for Brave Browser | Product Hunt" width="200" height="48" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1254570&amp;theme=dark&amp;t=1789727875338"></a>
 
 ![Brave](https://img.shields.io/badge/Brave-FB542B?style=flat-square&logo=brave&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-0078D4?style=flat-square&logo=windows&logoColor=white)
