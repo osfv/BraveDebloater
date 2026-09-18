@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added an original project mark (`assets/icons/debloater.png`): an orange lion with a teal broom, on a white background, and used it on the README in place of the Brave Software logo.
 - README now has a "What It Does Not Do" safety list, a per-feature command table, and a short comparison of policies vs settings, gists, and Brave Origin.
 - Added `install.ps1`, a one-line installer: `irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1 | iex` downloads the latest release zip and `SHA256SUMS.txt`, stops on a checksum mismatch, extracts to `%LOCALAPPDATA%\Programs\BraveDebloater` or `~/.local/share/BraveDebloater`, keeps `backups/` and your own files when upgrading in place (the new files are staged completely first and swapped in with rollback, so a failed upgrade leaves the previous install intact), and prints the preview command. `-Version`, `-Destination`, and `-ArchivePath` (install from a downloaded zip, still verified) are available when the script is run from a script block or file. It never changes Brave.
 - Added a Scoop manifest at `packaging/scoop/bravedebloater.json` (`scoop install https://raw.githubusercontent.com/osfv/BraveDebloater/main/packaging/scoop/bravedebloater.json`) with a `bravedebloat` shim and persisted `backups/`.
