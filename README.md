@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icons/debloater.png" alt="BraveDebloater" width="180" />
+</p>
+
 # BraveDebloater <a href="https://www.producthunt.com/products/bravedebloater?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-bravedebloater" target="_blank" rel="noopener noreferrer"><img alt="BraveDebloater - A safer, reversible debloater for Brave Browser | Product Hunt" width="200" height="48" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1254570&amp;theme=dark&amp;t=1789727875338"></a>
 
 ![Brave](https://img.shields.io/badge/Brave-FB542B?style=flat-square&logo=brave&logoColor=white)
@@ -14,7 +18,7 @@
 </p>
 
 <p>
-  <img src="assets/icons/brave.svg" width="18" alt="Brave logo" />
+  <img src="assets/icons/debloater.png" width="22" alt="BraveDebloater" />
   <strong>BraveDebloater</strong> removes Brave Browser extras with Brave and Chromium enterprise policies.
 </p>
 
