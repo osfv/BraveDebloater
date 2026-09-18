@@ -17,7 +17,6 @@
 </p>
 
 <p>
-  <img src="assets/icons/debloater.png" width="22" alt="BraveDebloater" />
   <strong>BraveDebloater</strong> removes Brave Browser extras with Brave and Chromium enterprise policies.
 </p>
 
