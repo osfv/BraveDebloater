@@ -222,6 +222,8 @@ Use PowerShell `-WhatIf` when you want a no-write preview even with `-Apply` pre
 .\Invoke-BraveDebloat.ps1 -Preset Extreme -Apply -WhatIf
 ```
 
+Exports also honor `-WhatIf`: add it to an `-ExportPolicyPath` command to preview without creating or overwriting the export file. Use one command mode at a time; combining diagnostics, policy listings, exports, restores, or backup maintenance now stops with a clear error. `-ListBackups` can still be combined with backup retention options.
+
 ## Platform Support
 
 Windows writes Brave policy values under the current-user or local-machine registry policy key.
@@ -336,6 +338,8 @@ If Brave is running, profile preference cleanup is skipped. This avoids writing 
 
 Preferences files are read and written as UTF-8 without a byte order mark on every PowerShell version, so profile names and site entries with non-ASCII characters are preserved.
 
+Already-correct preferences are marked `Already set` in previews. Apply skips those settings and leaves unchanged profile files untouched. Each changed profile's backup is recorded before its Preferences file is written, so earlier changes remain restorable if a later profile fails.
+
 ## Restore
 
 Every applied run creates a JSON backup in `backups/` unless `-NoBackup` is used for policy-only changes.
@@ -353,6 +357,8 @@ Apply a restore:
 ```
 
 Restore validates the backup before it writes. Registry restores are limited to Brave policy keys, the recorded policy kind must match the recorded path (a Linux JSON backup only restores to the Linux managed file or your `-PolicyPath`, a macOS plist backup only to the managed plist or your `-PolicyPath`), and Linux JSON or macOS values are written back with the exact type the backup recorded. Profile file restores are limited to `Preferences` files under the selected `-ProfileRoot`; each backup keeps its own copies under `backups/profile-files/<backup-name>/`, and pruning only deletes copies inside the pruned backup's own folder.
+
+If a profile copy referenced by a backup is missing, restore stops before changing any policies or profiles. Keep the JSON backup and its `profile-files/` copies together.
 
 ## Machine-Wide Mode
 
