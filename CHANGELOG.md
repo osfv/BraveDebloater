@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-09-23
+
 - Fixed policy exports creating or overwriting files with `-WhatIf`; exports now also honor PowerShell confirmation.
 - Reject conflicting command modes before any writes, preventing diagnostics or policy listings combined with backup retention from deleting backups.
 - Record each profile backup before changing its Preferences file, preserving recovery information if a later profile write fails. Restores now reject missing profile backup copies before changing policies.
