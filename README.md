@@ -105,7 +105,7 @@ irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1 | iex
 It downloads the latest release zip and `SHA256SUMS.txt`, refuses to continue if the hash does not match, extracts to `%LOCALAPPDATA%\Programs\BraveDebloater` (Windows) or `~/.local/share/BraveDebloater`, and prints the preview command. Running it again upgrades in place and keeps `backups/`. It does not touch Brave. To pick a version or folder:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1))) -Version 0.4.0 -Destination C:\Tools\BraveDebloater
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1))) -Version 0.5.0 -Destination C:\Tools\BraveDebloater
 ```
 
 Scoop users can install straight from this repository, with a `bravedebloat` shim and `backups/` persisted across upgrades:
