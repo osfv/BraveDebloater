@@ -88,6 +88,8 @@ foreach ($moduleName in @('Common.ps1', 'Manifest.ps1', 'PlatformPolicy.ps1', 'B
 $manifest = Get-Manifest
 $platformName = Resolve-PlatformName -Name $Platform
 
+Assert-CommandModes -Parameters $PSBoundParameters
+
 if ($Version) {
     Show-VersionInfo -ToolVersion $ToolVersion -Manifest $manifest -PlatformName $platformName
     return
@@ -265,6 +267,12 @@ Assert-MobilePolicySupport -PlatformName $platformName -PolicyNames (@($policyNa
 
 if ($exportRequested) {
     $payload = Get-PolicyPayload -PolicyNames $policyNames.ToArray() -PolicyDefinitions $policyDefinitions
+    # Validate the format even during a preview, but do not create or overwrite files.
+    $exportFormat = Get-PolicyExportFormat -Target $policyTarget -Path $ExportPolicyPath
+    if (-not $PSCmdlet.ShouldProcess($ExportPolicyPath, "Export $($policyNames.Count) policy value(s) as $exportFormat")) {
+        Write-Step 'Export skipped. No export file was written.'
+        return
+    }
     $exportFormat = Export-PolicyPayload -Target $policyTarget -Payload $payload -Path $ExportPolicyPath -RemoveNames $dnsRemovePolicyNames.ToArray()
     $exportHint = switch ($exportFormat) {
         'Reg' { 'Double-click it or run `reg import` on the target Windows machine, then restart Brave.' }
