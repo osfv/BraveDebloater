@@ -1,28 +1,5 @@
 #requires -Version 5.1
 
-function Assert-CommandModes {
-    param([Parameter(Mandatory = $true)][System.Collections.IDictionary]$Parameters)
-
-    $modes = New-Object System.Collections.Generic.List[string]
-    foreach ($name in @('Version', 'Doctor', 'List', 'ListFeatures', 'UndoFromBackup', 'ExportPolicyPath')) {
-        if ($Parameters.Keys -contains $name -and $Parameters[$name]) {
-            [void]$modes.Add("-$name")
-        }
-    }
-    $backupMode = $Parameters.Keys -contains 'ListBackups' -and $Parameters['ListBackups']
-    foreach ($name in @('PruneBackupsOlderThanDays', 'KeepLatestBackups')) {
-        if ($Parameters.Keys -contains $name -and $Parameters[$name] -ge 0) {
-            $backupMode = $true
-        }
-    }
-    if ($backupMode) {
-        [void]$modes.Add('backup listing/retention')
-    }
-    if ($modes.Count -gt 1) {
-        throw "Conflicting command modes: $($modes -join ', '). Run one mode at a time. No changes were made."
-    }
-}
-
 function Write-Step {
     param([string]$Message)
     Write-Host "[BraveDebloater] $Message"

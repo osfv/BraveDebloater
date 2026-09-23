@@ -152,14 +152,6 @@ function Invoke-ProfilePreferenceCleanup {
                 continue
             }
 
-            # Compare JSON scalars without PowerShell's boolean/string coercion.
-            if ($current.exists -and (ConvertTo-Json -InputObject $current.value -Compress -Depth 100) -ceq (ConvertTo-Json -InputObject $patch.value -Compress -Depth 100)) {
-                if (-not $DoApply) {
-                    Write-DryRun "Already set: $path in $file. No change needed."
-                }
-                continue
-            }
-
             if (-not $DoApply) {
                 if ($current.exists) {
                     Write-DryRun "Would set $path in $file from '$($current.value)' to '$($patch.value)'."
@@ -189,14 +181,12 @@ function Invoke-ProfilePreferenceCleanup {
                 backupPath = $profileBackupPath
             })
 
-            # Persist recovery information before each write. A later profile failure must not
-            # leave already modified profiles absent from the restore record.
-            Update-BackupProfileFiles -BackupPath $BackupPath -ProfileFiles $profileBackups.ToArray()
             Set-JsonFileContent -Path $file -Object $json -Depth 100
             Write-Step "Updated profile preferences in $file."
         }
-        elseif ($DoApply) {
-            Write-Step "No profile preference changes needed in $file."
-        }
+    }
+
+    if ($DoApply -and $profileBackups.Count -gt 0) {
+        Update-BackupProfileFiles -BackupPath $BackupPath -ProfileFiles $profileBackups.ToArray()
     }
 }

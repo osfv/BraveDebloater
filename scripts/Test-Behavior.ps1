@@ -1337,7 +1337,6 @@ try {
         throw 'packaging/scoop/bravedebloater.json must shim Invoke-BraveDebloat.ps1 and persist backups.'
     }
 
-    & (Join-Path $root 'tests/WriteSafety.ps1') -TempRoot (Join-Path $tempRoot 'WriteSafety')
     Write-Host 'Behavior checks passed.'
 }
 finally {

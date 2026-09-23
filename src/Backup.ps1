@@ -217,9 +217,6 @@ function Assert-BackupObject {
 
     foreach ($profileFile in $profileFiles) {
         Assert-BackupProfileFile -ProfileFile $profileFile -BackupPath $BackupPath -ProfileRoot $ProfileRoot
-        if (-not (Test-Path -LiteralPath ([string]$profileFile.backupPath) -PathType Leaf)) {
-            throw "Profile backup file is missing: $($profileFile.backupPath). Restore stopped before writing anything."
-        }
     }
 }
 
@@ -426,7 +423,7 @@ function Update-BackupProfileFiles {
     )
 
     if (-not $BackupPath -or -not (Test-Path -LiteralPath $BackupPath)) {
-        throw 'The profile backup record is missing. Profile preferences were not changed. Rerun with backups enabled.'
+        return
     }
 
     $backup = Get-JsonFileContent -Path $BackupPath
