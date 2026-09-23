@@ -1,11 +1,11 @@
 {
-    "version": "0.4.0",
+    "version": "0.5.0",
     "description": "Removes Brave Browser extras with Brave and Chromium enterprise policies. Dry-run by default; nothing changes without -Apply.",
     "homepage": "https://github.com/osfv/BraveDebloater",
     "license": "MIT",
-    "url": "https://github.com/osfv/BraveDebloater/releases/download/v0.4.0/BraveDebloater-v0.4.0.zip",
-    "hash": "fa0ec58940ea1472591cc0592edaba600fb98dc96e2992b7d4c6c8d548e468f5",
-    "extract_dir": "BraveDebloater-v0.4.0",
+    "url": "https://github.com/osfv/BraveDebloater/releases/download/v0.5.0/BraveDebloater-v0.5.0.zip",
+    "hash": "910d8e7767675a8455f6b5036c334de8811b18a28dfd9b6170ff46296f1683e6",
+    "extract_dir": "BraveDebloater-v0.5.0",
     "bin": [
         [
             "Invoke-BraveDebloat.ps1",
