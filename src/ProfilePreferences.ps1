@@ -114,6 +114,8 @@ function Invoke-ProfilePreferenceCleanup {
             })
     }
 
+    $datesMayChange = -not (Test-JsonDateKindSupported) -and $PSVersionTable.PSVersion.Major -ge 6
+
     foreach ($file in $files) {
         if (-not $DoApply) {
             Write-DryRun "Would inspect profile file $file."
@@ -125,7 +127,7 @@ function Invoke-ProfilePreferenceCleanup {
             if ([string]::IsNullOrWhiteSpace($raw)) {
                 throw 'The file is empty.'
             }
-            $json = $raw | ConvertFrom-Json
+            $json = ConvertFrom-JsonText -Json $raw
         }
         catch {
             Write-Warning "Skipping invalid profile Preferences file: $file ($($_.Exception.Message)) No changes were made to this file."
@@ -134,6 +136,11 @@ function Invoke-ProfilePreferenceCleanup {
 
         if ($json -isnot [System.Management.Automation.PSCustomObject]) {
             Write-Warning "Skipping invalid profile Preferences file: $file (top-level value is not a JSON object). No changes were made to this file."
+            continue
+        }
+
+        if ($datesMayChange -and (Test-JsonValueContainsDate -Value $json)) {
+            Write-Warning "Skipping profile Preferences file: $file (it contains date values that PowerShell $($PSVersionTable.PSVersion) would rewrite). No changes were made to this file. Rerun with PowerShell 7.5 or newer, or Windows PowerShell 5.1."
             continue
         }
 

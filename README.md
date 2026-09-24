@@ -336,7 +336,7 @@ Some cosmetic cleanup lives in each Brave profile instead. Close Brave first, th
 
 If Brave is running, profile preference cleanup is skipped. This avoids writing files that Brave may overwrite. Restores that include profile files stop for the same reason until Brave is closed. A preview tells you up front when Brave is running, and when a selected feature has profile patches that `-IncludeProfilePreferences` would add.
 
-Preferences files are read and written as UTF-8 without a byte order mark on every PowerShell version, so profile names and site entries with non-ASCII characters are preserved.
+Preferences files are read and written as UTF-8 without a byte order mark on every PowerShell version, so profile names and site entries with non-ASCII characters are preserved. Date strings elsewhere in the file are kept exactly as written. PowerShell 7.0 to 7.4 cannot read them without converting them, so those versions skip a Preferences file that contains dates and say so; use PowerShell 7.5 or newer, or Windows PowerShell 5.1, to clean it.
 
 Already-correct preferences are marked `Already set` in previews. Apply skips those settings and leaves unchanged profile files untouched. Each changed profile's backup is recorded before its Preferences file is written, so earlier changes remain restorable if a later profile fails.
 

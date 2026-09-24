@@ -178,7 +178,7 @@ function Get-ManagedPolicyJson {
         return [pscustomobject]@{}
     }
 
-    $json = $raw | ConvertFrom-Json
+    $json = ConvertFrom-JsonText -Json $raw
     if ($json -isnot [System.Management.Automation.PSCustomObject]) {
         throw "Managed policy file $Path does not contain a JSON object. Fix or remove the file, then rerun the command."
     }

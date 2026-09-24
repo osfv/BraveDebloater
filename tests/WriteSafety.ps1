@@ -123,4 +123,17 @@ Invoke-ProfilePreferenceCleanup -Root $profileRoot -Manifest $manifest -BackupPa
 $correctedValue = (Get-JsonFileContent -Path $firstProfile).brave.rewards.enabled
 if ($correctedValue -isnot [bool] -or $correctedValue) { throw 'Cleanup confused a string with a boolean preference.' }
 
+# PowerShell 7 without -DateKind parses date strings as DateTime; those files must be skipped, not rewritten.
+if ($PSVersionTable.PSVersion.Major -ge 6) {
+    function Invoke-CleanupWithoutDateKind {
+        function Test-JsonDateKindSupported { return $false }
+        Invoke-ProfilePreferenceCleanup -Root $profileRoot -Manifest $manifest -BackupPath $noOpBackup -SelectedFeatureIds Rewards -UseFeatureFilter -DoApply
+    }
+    $dateContent = '{"sync":{"last_synced":"2023-01-01T12:00:00.1234567+13:00"},"brave":{"rewards":{"enabled":true}}}'
+    Set-TextFileContent -Path $firstProfile -Content $dateContent
+    $dateOutput = Invoke-CleanupWithoutDateKind *>&1 | Out-String
+    if ($dateOutput -notlike '*it contains date values*') { throw 'Cleanup without -DateKind did not explain the skipped file.' }
+    if ((Get-Utf8FileContent -Path $firstProfile) -cne $dateContent) { throw 'Cleanup without -DateKind rewrote a Preferences file with date values.' }
+}
+
 Write-Host 'Write safety checks passed.'

@@ -676,6 +676,30 @@ try {
         throw 'Profile restore did not bring back the original Preferences content.'
     }
 
+    # Rewriting Preferences must keep unrelated date strings exactly as written. PowerShell 7 before
+    # 7.5 cannot parse them as text, so those versions skip the file instead of changing it.
+    $dateProfileRoot = Join-Path $tempRoot 'DateProfileRoot'
+    $datePreferences = Join-Path (Join-Path $dateProfileRoot 'Default') 'Preferences'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $datePreferences) -Force | Out-Null
+    $dateStamp = '2023-01-01T12:00:00.1234567+13:00'
+    $dateOriginal = '{"sync":{"last_synced":"' + $dateStamp + '"},"brave":{"rewards":{"enabled":true}}}'
+    [System.IO.File]::WriteAllText($datePreferences, $dateOriginal, $utf8NoBom)
+    $dateApplyOutput = (& $scriptPath -Platform Linux -PolicyPath (Join-Path $tempRoot 'date-policy.json') -OnlyFeature Rewards -IncludeProfilePreferences -ProfileRoot $dateProfileRoot -BackupDirectory (Join-Path $tempRoot 'DateBackups') -Apply *>&1 | Out-String -Width 4096)
+    $dateText = [System.IO.File]::ReadAllText($datePreferences, $utf8NoBom)
+    if ($PSVersionTable.PSVersion.Major -ge 6 -and -not (Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) {
+        Assert-TextContains -Text $dateApplyOutput -Expected 'it contains date values' -Context 'date Preferences apply output'
+        if ($dateText -cne $dateOriginal) {
+            throw 'Profile preference cleanup changed a Preferences file it could not rewrite safely.'
+        }
+    }
+    else {
+        Assert-TextContains -Text $dateApplyOutput -Expected 'Updated profile preferences in' -Context 'date Preferences apply output'
+        Assert-TextContains -Text $dateText -Expected "`"$dateStamp`"" -Context 'date Preferences content'
+        if (($dateText | ConvertFrom-Json).brave.rewards.enabled -ne $false) {
+            throw 'Profile preference cleanup did not apply the Rewards patch next to a date value.'
+        }
+    }
+
     $versionOutput = (& $scriptPath -Version *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $versionOutput -Expected 'BraveDebloater 0.5.0' -Context '-Version output'
     Assert-TextContains -Text $versionOutput -Expected 'Policy template version: 153.1.97.22' -Context '-Version output'

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed profile preference cleanup on PowerShell 7 rewriting unrelated date strings in `Preferences` (for example `+02:00` offsets came back in local time). JSON is now parsed with `-DateKind String` on PowerShell 7.5 and newer; PowerShell 7.0 to 7.4 skip a `Preferences` file that contains date values with a warning instead of changing it. Managed policy JSON and backups use the same parser, so on PowerShell 7.5 and newer a date-like string policy value also survives a restore.
+
 ## 0.5.0 - 2026-09-23
 
 - Fixed policy exports creating or overwriting files with `-WhatIf`; exports now also honor PowerShell confirmation.

@@ -128,6 +128,47 @@ function Get-ProfileBackupDirectory {
     return (Join-Path (Join-Path $backupDirectory 'profile-files') $backupName)
 }
 
+function Test-JsonDateKindSupported {
+    return (Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')
+}
+
+function ConvertFrom-JsonText {
+    param([Parameter(Mandatory = $true)][string]$Json)
+
+    # PowerShell 7 parses ISO 8601 strings into DateTime values, and ConvertTo-Json then writes them
+    # back in local time, so a rewrite would change unrelated values. -DateKind String (PowerShell 7.5+)
+    # keeps them as the original text. Windows PowerShell 5.1 never converts them.
+    $options = @{}
+    if (Test-JsonDateKindSupported) {
+        $options['DateKind'] = 'String'
+    }
+    return ($Json | ConvertFrom-Json @options)
+}
+
+function Test-JsonValueContainsDate {
+    param($Value)
+
+    $pending = New-Object System.Collections.Generic.Stack[object]
+    $pending.Push($Value)
+    while ($pending.Count -gt 0) {
+        $current = $pending.Pop()
+        if ($current -is [datetime] -or $current -is [datetimeoffset]) {
+            return $true
+        }
+        if ($current -is [System.Management.Automation.PSCustomObject]) {
+            foreach ($property in $current.PSObject.Properties) {
+                $pending.Push($property.Value)
+            }
+        }
+        elseif ($current -is [System.Collections.IList]) {
+            foreach ($item in $current) {
+                $pending.Push($item)
+            }
+        }
+    }
+    return $false
+}
+
 function Get-JsonFileContent {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -136,7 +177,7 @@ function Get-JsonFileContent {
         throw "The file is empty: $Path"
     }
 
-    return ($raw | ConvertFrom-Json)
+    return (ConvertFrom-JsonText -Json $raw)
 }
 
 function Set-TextFileContent {
