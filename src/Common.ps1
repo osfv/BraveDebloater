@@ -132,6 +132,10 @@ function Test-JsonDateKindSupported {
     return (Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')
 }
 
+function Test-JsonDatesMayChange {
+    return (-not (Test-JsonDateKindSupported) -and $PSVersionTable.PSVersion.Major -ge 6)
+}
+
 function ConvertFrom-JsonText {
     param([Parameter(Mandatory = $true)][string]$Json)
 

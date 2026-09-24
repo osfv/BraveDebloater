@@ -114,7 +114,7 @@ function Invoke-ProfilePreferenceCleanup {
             })
     }
 
-    $datesMayChange = -not (Test-JsonDateKindSupported) -and $PSVersionTable.PSVersion.Major -ge 6
+    $datesMayChange = Test-JsonDatesMayChange
 
     foreach ($file in $files) {
         if (-not $DoApply) {

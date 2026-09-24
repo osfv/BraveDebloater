@@ -134,6 +134,25 @@ if ($PSVersionTable.PSVersion.Major -ge 6) {
     $dateOutput = Invoke-CleanupWithoutDateKind *>&1 | Out-String
     if ($dateOutput -notlike '*it contains date values*') { throw 'Cleanup without -DateKind did not explain the skipped file.' }
     if ((Get-Utf8FileContent -Path $firstProfile) -cne $dateContent) { throw 'Cleanup without -DateKind rewrote a Preferences file with date values.' }
+
+    # The same applies to the managed policy file, which every set or remove re-serializes.
+    function Invoke-PolicyWriteWithoutDateKind {
+        param([scriptblock]$Write)
+        function Test-JsonDateKindSupported { return $false }
+        & $Write
+    }
+    $datePolicyContent = '{"HomepageLocation":"2023-01-01T12:00:00.1234567+13:00","BraveRewardsDisabled":false}'
+    foreach ($write in @(
+        { Set-PolicyValue -Target $target -Name 'BraveRewardsDisabled' -Definition ([pscustomobject]@{ type = 'DWord'; value = 1 }) },
+        { Remove-PolicyValue -Target $target -Name 'BraveRewardsDisabled' }
+    )) {
+        Set-TextFileContent -Path $policyPath -Content $datePolicyContent
+        $failure = ''
+        try { Invoke-PolicyWriteWithoutDateKind -Write $write *> $null }
+        catch { $failure = $_.Exception.Message }
+        if ($failure -notlike '*contains date values*') { throw "Policy write without -DateKind was not refused: $failure" }
+        if ((Get-Utf8FileContent -Path $policyPath) -cne $datePolicyContent) { throw 'Policy write without -DateKind rewrote a policy file with date values.' }
+    }
 }
 
 Write-Host 'Write safety checks passed.'

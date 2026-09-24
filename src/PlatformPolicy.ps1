@@ -186,6 +186,18 @@ function Get-ManagedPolicyJson {
     return $json
 }
 
+function Get-ManagedPolicyJsonForWrite {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # Every write re-serializes the whole file, so dates that this PowerShell cannot keep as text would
+    # change in unrelated policies. Stop before the first write instead.
+    $json = Get-ManagedPolicyJson -Path $Path
+    if ((Test-JsonDatesMayChange) -and (Test-JsonValueContainsDate -Value $json)) {
+        throw "Managed policy file $Path contains date values that PowerShell $($PSVersionTable.PSVersion) would rewrite, so it was not changed. Rerun with PowerShell 7.5 or newer, or Windows PowerShell 5.1."
+    }
+    return $json
+}
+
 function Get-ManagedPolicyValueKind {
     param($Value)
 
@@ -469,7 +481,7 @@ function Set-PolicyValue {
     if ($Target.Kind -eq 'JsonFile') {
         $json = [pscustomobject]@{}
         if (Test-Path -LiteralPath $Target.Path) {
-            $json = Get-ManagedPolicyJson -Path $Target.Path
+            $json = Get-ManagedPolicyJsonForWrite -Path $Target.Path
         }
         if ($null -eq $json.PSObject.Properties[$Name]) {
             $json | Add-Member -NotePropertyName $Name -NotePropertyValue $value
@@ -516,7 +528,7 @@ function Remove-PolicyValue {
     }
     if ($Target.Kind -eq 'JsonFile') {
         if (Test-Path -LiteralPath $Target.Path) {
-            $json = Get-ManagedPolicyJson -Path $Target.Path
+            $json = Get-ManagedPolicyJsonForWrite -Path $Target.Path
             $json.PSObject.Properties.Remove($Name)
             Set-JsonFileContent -Path $Target.Path -Object $json
         }
