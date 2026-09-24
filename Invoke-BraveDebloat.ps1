@@ -457,7 +457,6 @@ if (-not $applyChanges) {
 else {
     Write-Step "Done. Set $appliedPolicyCount of $($policyNames.Count) policy value(s).$obsoleteDoneSummary Restart Brave, then open brave://policy to check the applied policies."
     if ($null -ne $backupPath) {
-        $undoArguments = Get-UndoArgumentText -BackupPath $backupPath -Target $policyTarget -UserSid $UserSid -PolicyPathUsed:(-not [string]::IsNullOrWhiteSpace($PolicyPath)) -ProfileRoot $ProfileRoot
-        Write-Step "To undo this run, rerun BraveDebloater with: $undoArguments"
+        Write-Step (Get-UndoHint -BackupPath $backupPath -Target $policyTarget -UserSid $UserSid -PolicyPathUsed:(-not [string]::IsNullOrWhiteSpace($PolicyPath)) -ProfileRoot $ProfileRoot)
     }
 }

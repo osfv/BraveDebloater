@@ -435,6 +435,22 @@ try {
     }
     Assert-TextContains -Text $launcherApplyOutput -Expected "-PolicyPath `"$launcherPolicyPath`" -Apply" -Context 'launcher undo hint'
 
+    # No quoting is safe in both cmd.exe and PowerShell for %NAME%, $, or backticks, so the launcher
+    # hint lists the values instead of printing a command that would change the path when pasted.
+    foreach ($unsafeName in @('Launcher %TEMP%', 'Launcher $HOME')) {
+        $unsafeRoot = Join-Path $tempRoot $unsafeName
+        $env:BRAVEDEBLOATER_LAUNCHER = '1'
+        try {
+            $unsafeOutput = (& $scriptPath -Platform Linux -PolicyPath (Join-Path $unsafeRoot 'policy.json') -OnlyFeature Rewards -BackupDirectory (Join-Path $unsafeRoot 'backups') -Apply *>&1 | Out-String -Width 4096)
+        }
+        finally {
+            Remove-Item -LiteralPath Env:BRAVEDEBLOATER_LAUNCHER
+        }
+        Assert-TextContains -Text $unsafeOutput -Expected 'Quote each path for your shell yourself' -Context "launcher undo hint for '$unsafeName'"
+        Assert-TextContains -Text $unsafeOutput -Expected "-PolicyPath = $(Join-Path $unsafeRoot 'policy.json')" -Context "launcher undo hint for '$unsafeName'"
+        Assert-TextDoesNotContain -Text $unsafeOutput -Unexpected 'rerun BraveDebloater with: ' -Context "launcher undo hint for '$unsafeName'"
+    }
+
     $linuxListBackupsOutput = (& $scriptPath -ListBackups -BackupDirectory $linuxBackupDirectory *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $linuxListBackupsOutput -Expected "- 1 policy value(s), 0 profile file(s), target $linuxPolicyPath" -Context '-ListBackups backup details'
     Assert-TextContains -Text $listBackupsOutput -Expected "- not restorable: Backup is missing required property 'schemaVersion'." -Context '-ListBackups placeholder backup details'

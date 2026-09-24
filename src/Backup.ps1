@@ -292,16 +292,19 @@ function ConvertTo-CommandLineArgument {
     if ($Text -match '^[A-Za-z0-9_.:\\/~-]+$') {
         return $Text
     }
-    # BraveDebloat.exe usually runs from cmd.exe, which only understands double quotes (Windows paths
-    # cannot contain '"'). Elsewhere the hint is pasted into PowerShell, where single quotes keep `$`
-    # and backticks literal and an embedded quote is escaped by doubling it.
-    if ($env:BRAVEDEBLOATER_LAUNCHER -eq '1') {
-        return '"' + $Text + '"'
+    if ($env:BRAVEDEBLOATER_LAUNCHER -ne '1') {
+        # The script itself runs from PowerShell, where single quotes keep every character literal.
+        return "'" + $Text.Replace("'", "''") + "'"
     }
-    return "'" + $Text.Replace("'", "''") + "'"
+    # BraveDebloat.exe may run from cmd.exe or PowerShell. Double quotes work in both, except that cmd.exe
+    # expands %NAME% and PowerShell expands $ and backticks inside them; no quoting is safe in both then.
+    if ($Text.IndexOfAny([char[]]'%$`"') -ge 0) {
+        return $null
+    }
+    return '"' + $Text + '"'
 }
 
-function Get-UndoArgumentText {
+function Get-UndoHint {
     param(
         [Parameter(Mandatory = $true)][string]$BackupPath,
         [Parameter(Mandatory = $true)]$Target,
@@ -310,23 +313,32 @@ function Get-UndoArgumentText {
         [string]$ProfileRoot
     )
 
-    $arguments = New-Object System.Collections.Generic.List[string]
-    [void]$arguments.Add("-UndoFromBackup $(ConvertTo-CommandLineArgument -Text $BackupPath)")
+    $values = [ordered]@{ UndoFromBackup = $BackupPath }
     if (-not [string]::IsNullOrWhiteSpace($UserSid)) {
-        [void]$arguments.Add("-UserSid $UserSid")
+        $values['UserSid'] = $UserSid
     }
     if ($PolicyPathUsed -and $Target.Kind -in @('JsonFile', 'MacOSPlist')) {
-        [void]$arguments.Add("-PolicyPath $(ConvertTo-CommandLineArgument -Text $Target.Path)")
+        $values['PolicyPath'] = $Target.Path
     }
 
     # The restore only accepts profile files under -ProfileRoot, so pin the root this run used instead of
     # relying on the default being resolved the same way later (another user, channel, or LOCALAPPDATA).
     $backup = Get-JsonFileContent -Path $BackupPath
     if (-not [string]::IsNullOrWhiteSpace($ProfileRoot) -and @($backup.profileFiles).Count -gt 0) {
-        [void]$arguments.Add("-ProfileRoot $(ConvertTo-CommandLineArgument -Text (Get-FullFileSystemPath -Path $ProfileRoot))")
+        $values['ProfileRoot'] = Get-FullFileSystemPath -Path $ProfileRoot
+    }
+
+    $arguments = New-Object System.Collections.Generic.List[string]
+    foreach ($entry in $values.GetEnumerator()) {
+        $quoted = ConvertTo-CommandLineArgument -Text $entry.Value
+        if ($null -eq $quoted) {
+            $plainValues = @($values.GetEnumerator() | ForEach-Object { "-$($_.Key) = $($_.Value)" }) -join '; '
+            return "To undo this run, rerun BraveDebloater with -Apply and these values. Quote each path for your shell yourself, because a path contains %, `$, or a backtick: $plainValues"
+        }
+        [void]$arguments.Add("-$($entry.Key) $quoted")
     }
     [void]$arguments.Add('-Apply')
-    return ($arguments.ToArray() -join ' ')
+    return "To undo this run, rerun BraveDebloater with: $($arguments.ToArray() -join ' ')"
 }
 
 function Get-BackupDescription {
