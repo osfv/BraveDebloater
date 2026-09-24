@@ -155,4 +155,51 @@ if ($PSVersionTable.PSVersion.Major -ge 6) {
     }
 }
 
+# A matching -PolicyPath must never authorize an unrelated registry key.
+foreach ($untrustedPath in @('Registry::HKEY_CURRENT_USER\Software\NotBrave', 'Registry::HKEY_LOCAL_MACHINE\Software\NotBrave')) {
+    $failure = ''
+    try { Assert-BackupRegistryPath -RegistryPath $untrustedPath -AllowedPolicyPath $untrustedPath }
+    catch { $failure = $_.Exception.Message }
+    if ($failure -notlike '*untrusted registry path*') { throw 'PolicyPath bypassed the Brave registry restore allowlist.' }
+}
+
+# Setting and removing a managed policy must preserve deeply nested unrelated values.
+$nested = [pscustomobject]@{ marker = 'keep me'; values = @(1, 'two', $false) }
+for ($level = 0; $level -lt 30; $level++) {
+    $nested = [pscustomobject]@{ child = $nested }
+}
+$deepPolicy = [pscustomobject]@{ UnrelatedPolicy = $nested; BraveRewardsDisabled = $false }
+$expectedNested = ConvertTo-Json -InputObject $nested -Depth 100 -Compress
+Set-JsonFileContent -Path $policyPath -Object $deepPolicy -Depth 100
+foreach ($write in @(
+    { Set-PolicyValue -Target $target -Name 'BraveRewardsDisabled' -Definition ([pscustomobject]@{ type = 'DWord'; value = 1 }) },
+    { Remove-PolicyValue -Target $target -Name 'BraveRewardsDisabled' }
+)) {
+    & $write
+    $actualNested = ConvertTo-Json -InputObject (Get-JsonFileContent -Path $policyPath).UnrelatedPolicy -Depth 100 -Compress
+    if ($actualNested -cne $expectedNested) { throw 'Policy write truncated unrelated nested JSON.' }
+}
+
+# Refuse depth overflow before touching an existing file, including nested arrays.
+foreach ($container in @('Object', 'Array')) {
+    $tooDeep = [pscustomobject]@{ marker = 'keep me' }
+    for ($level = 0; $level -lt 102; $level++) {
+        if ($container -eq 'Object') { $tooDeep = [pscustomobject]@{ child = $tooDeep } }
+        else { $tooDeep = ,$tooDeep }
+    }
+    $originalBytes = Get-Utf8FileContent -Path $policyPath
+    $failure = ''
+    try { Set-JsonFileContent -Path $policyPath -Object $tooDeep -Depth 100 }
+    catch { $failure = $_.Exception.Message }
+    if ($failure -notlike 'JSON nesting exceeds*') { throw "Depth overflow was not rejected for ${container}: $failure" }
+    if ((Get-Utf8FileContent -Path $policyPath) -cne $originalBytes) { throw 'Depth overflow changed the original file.' }
+}
+
+foreach ($mode in @('Unmanaged', 'Automatic', 'Off')) {
+    $listing = & $scriptPath -Platform Linux -OnlyFeature Rewards -DnsOverHttps $mode -List *>&1 | Out-String
+    if ($listing -notlike '*Remove if present: DnsOverHttpsTemplates.*') { throw 'DNS listing omitted resolver removal.' }
+    if ($mode -eq 'Unmanaged' -and $listing -notlike '*Remove if present: DnsOverHttpsMode.*') { throw 'DNS listing omitted mode removal.' }
+    if ($listing -notlike '*Policy plan:*') { throw 'Policy listing omitted totals.' }
+}
+
 Write-Host 'Write safety checks passed.'

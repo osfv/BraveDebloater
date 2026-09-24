@@ -262,6 +262,40 @@ function New-DirectoryLiteral {
     }
 }
 
+function Assert-JsonSerializationDepth {
+    param($Value, [int]$Depth)
+
+    # ConvertTo-Json silently stringifies deeper containers on Windows PowerShell 5.1.
+    # Refuse that lossy conversion before any file is opened for writing.
+    $pending = New-Object System.Collections.Generic.Stack[object]
+    $pending.Push(@{ Value = $Value; Level = 0 })
+    while ($pending.Count -gt 0) {
+        $entry = $pending.Pop()
+        $current = $entry.Value
+        if ($current -isnot [System.Collections.IDictionary] -and $current -isnot [System.Collections.IList] -and $current -isnot [System.Management.Automation.PSCustomObject]) {
+            continue
+        }
+        if ($entry.Level -gt $Depth) {
+            throw "JSON nesting exceeds the supported depth of $Depth. The file was not changed."
+        }
+        if ($current -is [System.Collections.IDictionary]) {
+            foreach ($child in $current.Values) {
+                $pending.Push(@{ Value = $child; Level = ($entry.Level + 1) })
+            }
+        }
+        elseif ($current -is [System.Collections.IList]) {
+            foreach ($child in $current) {
+                $pending.Push(@{ Value = $child; Level = ($entry.Level + 1) })
+            }
+        }
+        else {
+            foreach ($property in $current.PSObject.Properties) {
+                $pending.Push(@{ Value = $property.Value; Level = ($entry.Level + 1) })
+            }
+        }
+    }
+}
+
 function Set-JsonFileContent {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -269,7 +303,8 @@ function Set-JsonFileContent {
         [int]$Depth = 20
     )
 
-    $json = $Object | ConvertTo-Json -Depth $Depth
+    Assert-JsonSerializationDepth -Value $Object -Depth $Depth
+    $json = ConvertTo-Json -InputObject $Object -Depth $Depth
     Set-TextFileContent -Path $Path -Content ($json + [Environment]::NewLine)
 }
 

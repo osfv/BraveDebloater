@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed `-PolicyPath` allowing restores outside the Brave registry policy keys when it matched a backup's path.
+- Preserve deeply nested unrelated Linux policy JSON during apply and undo. Refuse JSON writes that exceed serialization depth instead of silently truncating data, including profile Preferences and backups.
+- `-List` now includes policy totals and DNS policies to remove if present.
+- Added the Linux preview, apply, and undo video to the README.
+
 ## 0.6.0 - 2026-09-24
 
 - Fixed profile preference cleanup on PowerShell 7 rewriting unrelated date strings in `Preferences` (for example `+02:00` offsets came back in local time). JSON is now parsed with `-DateKind String` on PowerShell 7.5 and newer; PowerShell 7.0 to 7.4 skip a `Preferences` file that contains date values with a warning instead of changing it, and stop before writing a managed policy JSON file that contains them. Managed policy JSON and backups use the same parser, so on PowerShell 7.5 and newer a date-like string policy value also survives a restore.
