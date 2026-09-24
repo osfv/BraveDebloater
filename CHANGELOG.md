@@ -6,6 +6,7 @@
 - Apply runs now end with the exact restore arguments for the backup they wrote, including `-PolicyPath`, `-UserSid`, `-ProfileRoot`, or `-Channel` when needed.
 - `-UndoFromBackup Latest` restores the newest backup in `-BackupDirectory` and prints which file it picked.
 - `-ListBackups` shows each backup's policy value count, profile file count, and policy target.
+- `-Doctor` explains how to pass `-ProfileRoot` when no profile folder is known for the platform, instead of printing an empty path.
 
 ## 0.5.0 - 2026-09-23
 

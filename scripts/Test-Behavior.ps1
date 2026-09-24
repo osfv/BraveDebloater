@@ -980,12 +980,14 @@ try {
     try {
         $env:LOCALAPPDATA = ''
         $blankRootOutput = (& $scriptPath -Platform Windows -OnlyFeature Rewards -IncludeProfilePreferences *>&1 | Out-String -Width 4096)
+        $blankRootDoctorOutput = (& $scriptPath -Doctor -Platform Windows -BackupDirectory (Join-Path $tempRoot 'BlankRootDoctorBackups') *>&1 | Out-String -Width 4096)
     }
     finally {
         $env:LOCALAPPDATA = $savedLocalAppData
     }
     Assert-TextContains -Text $blankRootOutput -Expected 'No Brave profile root is known for this platform' -Context 'blank profile root output'
     Assert-TextContains -Text $blankRootOutput -Expected 'Dry-run complete.' -Context 'blank profile root output'
+    Assert-TextContains -Text $blankRootDoctorOutput -Expected 'Profile root: unknown for this platform' -Context 'blank profile root Doctor output'
 
     # Exports never write to the policy target, so -Apply is ignored instead of demanding elevation or MDM.
     $androidApplyExportPath = Join-Path $tempRoot 'brave-android-apply-export.json'
