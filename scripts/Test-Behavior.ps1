@@ -435,9 +435,9 @@ try {
     }
     Assert-TextContains -Text $launcherApplyOutput -Expected "-PolicyPath `"$launcherPolicyPath`" -Apply" -Context 'launcher undo hint'
 
-    # No quoting is safe in both cmd.exe and PowerShell for %NAME%, $, or backticks, so the launcher
+    # No quoting is safe in both cmd.exe and PowerShell for %NAME%, !NAME!, $, or backticks, so the launcher
     # hint lists the values instead of printing a command that would change the path when pasted.
-    foreach ($unsafeName in @('Launcher %TEMP%', 'Launcher $HOME')) {
+    foreach ($unsafeName in @('Launcher %TEMP%', 'Launcher !TEMP!', 'Launcher $HOME')) {
         $unsafeRoot = Join-Path $tempRoot $unsafeName
         $env:BRAVEDEBLOATER_LAUNCHER = '1'
         try {

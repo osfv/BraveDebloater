@@ -297,8 +297,9 @@ function ConvertTo-CommandLineArgument {
         return "'" + $Text.Replace("'", "''") + "'"
     }
     # BraveDebloat.exe may run from cmd.exe or PowerShell. Double quotes work in both, except that cmd.exe
-    # expands %NAME% and PowerShell expands $ and backticks inside them; no quoting is safe in both then.
-    if ($Text.IndexOfAny([char[]]'%$`"') -ge 0) {
+    # expands %NAME% (and !NAME! with delayed expansion) and PowerShell expands $ and backticks inside
+    # them; no quoting is safe in both then.
+    if ($Text.IndexOfAny([char[]]'%!$`"') -ge 0) {
         return $null
     }
     return '"' + $Text + '"'
@@ -333,7 +334,7 @@ function Get-UndoHint {
         $quoted = ConvertTo-CommandLineArgument -Text $entry.Value
         if ($null -eq $quoted) {
             $plainValues = @($values.GetEnumerator() | ForEach-Object { "-$($_.Key) = $($_.Value)" }) -join '; '
-            return "To undo this run, rerun BraveDebloater with -Apply and these values. Quote each path for your shell yourself, because a path contains %, `$, or a backtick: $plainValues"
+            return "To undo this run, rerun BraveDebloater with -Apply and these values. Quote each path for your shell yourself, because a path contains %, !, `$, or a backtick: $plainValues"
         }
         [void]$arguments.Add("-$($entry.Key) $quoted")
     }
