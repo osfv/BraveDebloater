@@ -194,7 +194,7 @@ List backups or preview retention cleanup:
 .\Invoke-BraveDebloat.ps1 -KeepLatestBackups 10
 ```
 
-Add `-Apply` only after the preview lists the backups you expect to delete. Pruning a backup also removes the profile `Preferences` copies that belong only to it.
+Each listed backup shows how many policy values and profile files it holds and which policy target it restores, or why a restore would reject it (for example a missing profile copy or a policy this version does not manage). Add `-Apply` only after the preview lists the backups you expect to delete. Pruning a backup also removes the profile `Preferences` copies that belong only to it.
 
 Apply the default cleanup and lock a safe Shields baseline:
 
@@ -239,7 +239,7 @@ The target is exactly `HKEY_USERS\<SID>\Software\Policies\BraveSoftware\Brave`. 
 
 macOS current-user mode uses `defaults write com.brave.Browser`. macOS machine-wide mode writes `/Library/Managed Preferences/com.brave.Browser.plist`.
 
-Linux writes JSON policy values to `/etc/brave/policies/managed/BraveDebloater.json`.
+Linux writes JSON policy values to `/etc/brave/policies/managed/BraveDebloater.json`. Other values in that file, including date strings, are kept as written. On PowerShell 7.0 to 7.4, which cannot keep date strings as text, apply and restore stop before changing a policy file that contains them.
 
 Android and iOS/iPadOS do not support local writes from this script. Use `-ExportPolicyPath` to create an MDM payload. Brave documents limited iOS/iPadOS support for Playlist, VPN, News, Talk, Rewards, and AI Chat policies.
 
@@ -336,7 +336,7 @@ Some cosmetic cleanup lives in each Brave profile instead. Close Brave first, th
 
 If Brave is running, profile preference cleanup is skipped. This avoids writing files that Brave may overwrite. Restores that include profile files stop for the same reason until Brave is closed. A preview tells you up front when Brave is running, and when a selected feature has profile patches that `-IncludeProfilePreferences` would add.
 
-Preferences files are read and written as UTF-8 without a byte order mark on every PowerShell version, so profile names and site entries with non-ASCII characters are preserved.
+Preferences files are read and written as UTF-8 without a byte order mark on every PowerShell version, so profile names and site entries with non-ASCII characters are preserved. Date strings elsewhere in the file are kept exactly as written. PowerShell 7.0 to 7.4 cannot read them without converting them, so those versions skip a Preferences file that contains dates and say so; use PowerShell 7.5 or newer, or Windows PowerShell 5.1, to clean it.
 
 Already-correct preferences are marked `Already set` in previews. Apply skips those settings and leaves unchanged profile files untouched. Each changed profile's backup is recorded before its Preferences file is written, so earlier changes remain restorable if a later profile fails.
 
@@ -355,6 +355,8 @@ Apply a restore:
 ```powershell
 .\Invoke-BraveDebloat.ps1 -UndoFromBackup .\backups\BraveDebloater-YYYYMMDD-HHMMSS-fff.json -Apply
 ```
+
+Every apply run ends with the exact restore arguments for its backup, ready to paste into PowerShell, or into `cmd.exe` when you ran `BraveDebloat.exe`. Because `BraveDebloat.exe` can run from either shell, a launcher run whose paths contain `%`, `!`, `$`, or a backtick lists the values instead, for you to quote. They include `-PolicyPath` and `-UserSid` when the run used them, and `-ProfileRoot` with the resolved profile folder whenever the backup holds profile files. Use `-UndoFromBackup Latest` to pick the newest backup in `-BackupDirectory`; the run prints which file it chose, so preview it before adding `-Apply`.
 
 Restore validates the backup before it writes. Registry restores are limited to Brave policy keys, the recorded policy kind must match the recorded path (a Linux JSON backup only restores to the Linux managed file or your `-PolicyPath`, a macOS plist backup only to the managed plist or your `-PolicyPath`), and Linux JSON or macOS values are written back with the exact type the backup recorded. Profile file restores are limited to `Preferences` files under the selected `-ProfileRoot`; each backup keeps its own copies under `backups/profile-files/<backup-name>/`, and pruning only deletes copies inside the pruned backup's own folder.
 

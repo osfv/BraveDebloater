@@ -147,7 +147,10 @@ function Show-DoctorReport {
     }
 
     $profileFiles = @(Get-BraveProfilePreferenceFiles -Root $ProfileRoot)
-    if (-not [string]::IsNullOrWhiteSpace($ProfileRoot) -and (Test-Path -LiteralPath $ProfileRoot)) {
+    if ([string]::IsNullOrWhiteSpace($ProfileRoot)) {
+        Write-Step 'Profile root: unknown for this platform. Pass -ProfileRoot with the Brave "User Data" folder to check profile files.'
+    }
+    elseif (Test-Path -LiteralPath $ProfileRoot) {
         Write-Step "Profile root: found $($profileFiles.Count) Preferences file(s) under $ProfileRoot"
     }
     else {

@@ -45,6 +45,8 @@ namespace BraveDebloater
                 ProcessStartInfo startInfo = new ProcessStartInfo(shell, BuildArguments(scriptPath, args));
                 startInfo.UseShellExecute = false;
                 startInfo.WorkingDirectory = Path.GetDirectoryName(scriptPath);
+                // Tells the script to quote printed commands for cmd.exe, where this launcher usually runs.
+                startInfo.EnvironmentVariables["BRAVEDEBLOATER_LAUNCHER"] = "1";
 
                 int exitCode;
                 using (Process process = Process.Start(startInfo))

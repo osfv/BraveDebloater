@@ -121,13 +121,14 @@ $applyChanges = $Apply -and -not $WhatIfPreference
 $isWhatIf = $Apply -and $WhatIfPreference
 
 if ($ListBackups -or $PruneBackupsOlderThanDays -ge 0 -or $KeepLatestBackups -ge 0) {
-    Invoke-BackupRetention -Directory $BackupDirectory -OlderThanDays $PruneBackupsOlderThanDays -KeepLatest $KeepLatestBackups -DoApply:$applyChanges
+    Invoke-BackupRetention -Directory $BackupDirectory -Manifest $manifest -OlderThanDays $PruneBackupsOlderThanDays -KeepLatest $KeepLatestBackups -DoApply:$applyChanges
     return
 }
 
 if ($UndoFromBackup) {
     $allowedUserPolicyPath = if ($userSidSpecified) { Get-RegistryPolicyPath -ScopeName 'CurrentUser' -UserSid $UserSid } else { $null }
-    Restore-RegistryBackup -BackupPath $UndoFromBackup -Manifest $manifest -ProfileRoot $ProfileRoot -AllowedPolicyPath $PolicyPath -AllowedUserPolicyPath $allowedUserPolicyPath -DoApply:$applyChanges
+    $restoreBackupPath = Resolve-BackupPath -Path $UndoFromBackup -Directory $BackupDirectory
+    Restore-RegistryBackup -BackupPath $restoreBackupPath -Manifest $manifest -ProfileRoot $ProfileRoot -AllowedPolicyPath $PolicyPath -AllowedUserPolicyPath $allowedUserPolicyPath -DoApply:$applyChanges
     if (-not $applyChanges) {
         if ($isWhatIf) {
             Write-Step 'Undo preview complete. No files or policies were restored. Rerun with -Apply without -WhatIf to restore the backup.'
@@ -372,7 +373,12 @@ foreach ($name in $dnsPresentRemovals) {
 $backupPath = $null
 if ($applyChanges -and -not $NoBackup) {
     if ($policyTarget.Kind -eq 'JsonFile' -and (Test-Path -LiteralPath $policyTarget.Path)) {
-        Get-ManagedPolicyJson -Path $policyTarget.Path | Out-Null
+        if ($backupPolicyNames.Count -gt 0) {
+            Get-ManagedPolicyJsonForWrite -Path $policyTarget.Path | Out-Null
+        }
+        else {
+            Get-ManagedPolicyJson -Path $policyTarget.Path | Out-Null
+        }
     }
     $backupPath = New-Backup -Directory $BackupDirectory -ScopeName $Scope -Target $policyTarget -PolicyNames $backupPolicyNames.ToArray() -ProfileRoot $ProfileRoot -Manifest $manifest
     Write-Step "Backup written to $backupPath"
@@ -455,4 +461,7 @@ if (-not $applyChanges) {
 }
 else {
     Write-Step "Done. Set $appliedPolicyCount of $($policyNames.Count) policy value(s).$obsoleteDoneSummary Restart Brave, then open brave://policy to check the applied policies."
+    if ($null -ne $backupPath) {
+        Write-Step (Get-UndoHint -BackupPath $backupPath -Target $policyTarget -UserSid $UserSid -PolicyPathUsed:(-not [string]::IsNullOrWhiteSpace($PolicyPath)) -ProfileRoot $ProfileRoot)
+    }
 }

@@ -198,10 +198,7 @@ function Assert-BackupObject {
         [switch]$DoApply
     )
 
-    $schemaVersion = Get-RequiredPropertyValue -Object $Backup -Name 'schemaVersion' -Context 'Backup'
-    if ($schemaVersion -ne 1) {
-        throw "Unsupported backup schema version '$schemaVersion'."
-    }
+    Assert-BackupSchemaVersion -Backup $Backup
 
     $registryPath = [string](Get-RequiredPropertyValue -Object $Backup -Name 'registryPath' -Context 'Backup')
     Assert-BackupRegistryPath -RegistryPath $registryPath -AllowedPolicyPath $AllowedPolicyPath -AllowedUserPolicyPath $AllowedUserPolicyPath -DoApply:$DoApply
@@ -217,9 +214,25 @@ function Assert-BackupObject {
 
     foreach ($profileFile in $profileFiles) {
         Assert-BackupProfileFile -ProfileFile $profileFile -BackupPath $BackupPath -ProfileRoot $ProfileRoot
-        if (-not (Test-Path -LiteralPath ([string]$profileFile.backupPath) -PathType Leaf)) {
-            throw "Profile backup file is missing: $($profileFile.backupPath). Restore stopped before writing anything."
-        }
+        Assert-BackupProfileCopyExists -ProfileFile $profileFile
+    }
+}
+
+function Assert-BackupSchemaVersion {
+    param([Parameter(Mandatory = $true)]$Backup)
+
+    $schemaVersion = Get-RequiredPropertyValue -Object $Backup -Name 'schemaVersion' -Context 'Backup'
+    if ($schemaVersion -ne 1) {
+        throw "Unsupported backup schema version '$schemaVersion'."
+    }
+}
+
+function Assert-BackupProfileCopyExists {
+    param([Parameter(Mandatory = $true)]$ProfileFile)
+
+    $source = [string](Get-RequiredPropertyValue -Object $ProfileFile -Name 'backupPath' -Context 'Backup profile file')
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+        throw "Profile backup file is missing: $source. Restore stopped before writing anything."
     }
 }
 
@@ -255,9 +268,125 @@ function Get-BackupFiles {
     return @(Get-ChildItem -LiteralPath $fullDirectory -Filter 'BraveDebloater-*.json' | Where-Object { -not $_.PSIsContainer } | Sort-Object LastWriteTime -Descending)
 }
 
+function Resolve-BackupPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [string]$Directory
+    )
+
+    if ($Path -ne 'Latest') {
+        return $Path
+    }
+
+    $latest = (Get-BackupSummary -Directory $Directory).Latest
+    if ([string]::IsNullOrWhiteSpace($latest)) {
+        throw "No backups found in $(Get-FullFileSystemPath -Path $Directory). Pass a backup file to -UndoFromBackup, or point -BackupDirectory at the folder that holds your backups."
+    }
+    Write-Step "Latest backup: $latest"
+    return $latest
+}
+
+function ConvertTo-CommandLineArgument {
+    param([Parameter(Mandatory = $true)][string]$Text)
+
+    if ($Text -match '^[A-Za-z0-9_.:\\/~-]+$') {
+        return $Text
+    }
+    if ($env:BRAVEDEBLOATER_LAUNCHER -ne '1') {
+        # The script itself runs from PowerShell, where single quotes keep every character literal.
+        return "'" + $Text.Replace("'", "''") + "'"
+    }
+    # BraveDebloat.exe may run from cmd.exe or PowerShell. Double quotes work in both, except that cmd.exe
+    # expands %NAME% (and !NAME! with delayed expansion) and PowerShell expands $ and backticks inside
+    # them; no quoting is safe in both then.
+    if ($Text.IndexOfAny([char[]]'%!$`"') -ge 0) {
+        return $null
+    }
+    return '"' + $Text + '"'
+}
+
+function Get-UndoHint {
+    param(
+        [Parameter(Mandatory = $true)][string]$BackupPath,
+        [Parameter(Mandatory = $true)]$Target,
+        [string]$UserSid,
+        [switch]$PolicyPathUsed,
+        [string]$ProfileRoot
+    )
+
+    $values = [ordered]@{ UndoFromBackup = $BackupPath }
+    if (-not [string]::IsNullOrWhiteSpace($UserSid)) {
+        $values['UserSid'] = $UserSid
+    }
+    if ($PolicyPathUsed -and $Target.Kind -in @('JsonFile', 'MacOSPlist')) {
+        $values['PolicyPath'] = $Target.Path
+    }
+
+    # The restore only accepts profile files under -ProfileRoot, so pin the root this run used instead of
+    # relying on the default being resolved the same way later (another user, channel, or LOCALAPPDATA).
+    $backup = Get-JsonFileContent -Path $BackupPath
+    if (-not [string]::IsNullOrWhiteSpace($ProfileRoot) -and @($backup.profileFiles).Count -gt 0) {
+        $values['ProfileRoot'] = Get-FullFileSystemPath -Path $ProfileRoot
+    }
+
+    $arguments = New-Object System.Collections.Generic.List[string]
+    foreach ($entry in $values.GetEnumerator()) {
+        $quoted = ConvertTo-CommandLineArgument -Text $entry.Value
+        if ($null -eq $quoted) {
+            $plainValues = @($values.GetEnumerator() | ForEach-Object { "-$($_.Key) = $($_.Value)" }) -join '; '
+            return "To undo this run, rerun BraveDebloater with -Apply and these values. Quote each path for your shell yourself, because a path contains %, !, `$, or a backtick: $plainValues"
+        }
+        [void]$arguments.Add("-$($entry.Key) $quoted")
+    }
+    [void]$arguments.Add('-Apply')
+    return "To undo this run, rerun BraveDebloater with: $($arguments.ToArray() -join ' ')"
+}
+
+function Get-BackupDescription {
+    param(
+        [Parameter(Mandatory = $true)][string]$BackupPath,
+        [Parameter(Mandatory = $true)]$Manifest
+    )
+
+    try {
+        $backup = Get-JsonFileContent -Path $BackupPath
+    }
+    catch {
+        return 'unreadable'
+    }
+    if ($backup -isnot [System.Management.Automation.PSCustomObject]) {
+        return 'not restorable: not a BraveDebloater backup'
+    }
+
+    # Path allowlists depend on the -PolicyPath, -UserSid, and -ProfileRoot given to a restore, so
+    # only the restore checks that hold for every restore run here.
+    try {
+        Assert-BackupSchemaVersion -Backup $backup
+        $registryPath = [string](Get-RequiredPropertyValue -Object $backup -Name 'registryPath' -Context 'Backup')
+        Assert-BackupPolicyKind -Backup $backup -RegistryPath $registryPath -AllowedPolicyPath $registryPath
+        Assert-BackupPolicyList -Backup $backup -PolicyDefinitions (Get-ManifestMap -Object $Manifest.policies) -DeprecatedPolicyNames @(Get-DeprecatedPolicyNames -Manifest $Manifest)
+        if ($null -ne $backup.PSObject.Properties['profileFiles']) {
+            foreach ($profileFile in @($backup.profileFiles)) {
+                Assert-BackupProfileCopyExists -ProfileFile $profileFile
+            }
+        }
+    }
+    catch {
+        return "not restorable: $($_.Exception.Message)"
+    }
+
+    $profileFileCount = 0
+    if ($null -ne $backup.PSObject.Properties['profileFiles']) {
+        $profileFileCount = @($backup.profileFiles).Count
+    }
+    $target = ([string]$backup.registryPath) -replace '^Registry::', ''
+    return ('{0} policy value(s), {1} profile file(s), target {2}' -f @($backup.policies).Count, $profileFileCount, $target)
+}
+
 function Invoke-BackupRetention {
     param(
         [string]$Directory,
+        [Parameter(Mandatory = $true)]$Manifest,
         [int]$OlderThanDays = -1,
         [int]$KeepLatest = -1,
         [switch]$DoApply
@@ -266,7 +395,7 @@ function Invoke-BackupRetention {
     $files = @(Get-BackupFiles -Directory $Directory)
     Write-Step "Backups: $($files.Count) found in $(Get-FullFileSystemPath -Path $Directory)"
     foreach ($file in $files) {
-        Write-Step ("Backup: {0} ({1:yyyy-MM-dd HH:mm:ss})" -f $file.Name, $file.LastWriteTime)
+        Write-Step ("Backup: {0} ({1:yyyy-MM-dd HH:mm:ss}) - {2}" -f $file.Name, $file.LastWriteTime, (Get-BackupDescription -BackupPath $file.FullName -Manifest $Manifest))
     }
 
     $pruneRequested = $OlderThanDays -ge 0 -or $KeepLatest -ge 0
