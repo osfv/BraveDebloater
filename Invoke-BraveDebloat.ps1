@@ -232,7 +232,7 @@ if ($ListFeatures) {
 }
 
 if ($List) {
-    Show-PolicyList -PolicyNames $policyNames.ToArray() -PolicyDefinitions $policyDefinitions
+    Show-PolicyList -PolicyNames $policyNames.ToArray() -PolicyDefinitions $policyDefinitions -RemoveNames $dnsRemovePolicyNames.ToArray()
     if ($IncludeProfilePreferences) {
         Write-Step 'Profile preference patches that would be considered:'
         $patchesToList = @($manifest.profilePreferencePatches)

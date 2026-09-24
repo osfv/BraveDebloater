@@ -489,7 +489,7 @@ function Set-PolicyValue {
         else {
             $json.PSObject.Properties[$Name].Value = $value
         }
-        Set-JsonFileContent -Path $Target.Path -Object $json
+        Set-JsonFileContent -Path $Target.Path -Object $json -Depth 100
         return
     }
 
@@ -530,7 +530,7 @@ function Remove-PolicyValue {
         if (Test-Path -LiteralPath $Target.Path) {
             $json = Get-ManagedPolicyJsonForWrite -Path $Target.Path
             $json.PSObject.Properties.Remove($Name)
-            Set-JsonFileContent -Path $Target.Path -Object $json
+            Set-JsonFileContent -Path $Target.Path -Object $json -Depth 100
         }
         return
     }

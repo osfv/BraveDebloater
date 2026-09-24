@@ -34,6 +34,12 @@ Before an apply run, BraveDebloater writes a backup unless you use `-NoBackup` f
 
 PowerShell is the cross-platform runtime. The files it writes are native to each platform: Windows registry policies, macOS defaults or plist payloads, and Linux JSON policy files.
 
+## Linux Demo
+
+[![Watch the Linux preview, apply, and undo demo](assets/videos/bravedebloater-linux-demo-preview.png)](assets/videos/bravedebloater-linux-demo.mp4)
+
+[Watch the Linux demo (87 seconds, MP4)](assets/videos/bravedebloater-linux-demo.mp4): preview the cleanup, apply it, and undo it from a backup.
+
 ## What It Does Not Do
 
 - It does not disable Brave updates. Update policies are on the blocklist and the tool refuses to write them.
@@ -167,6 +173,8 @@ See what would be changed, including profile preference patches:
 ```powershell
 .\Invoke-BraveDebloat.ps1 -Preset Extreme -List -IncludeProfilePreferences
 ```
+
+`-List` includes policy totals and any DNS policies to remove if present. For example, `-List -DnsOverHttps Unmanaged` lists both DNS policy removals alongside the selected preset.
 
 See the feature names you can include or exclude:
 

@@ -66,10 +66,6 @@ function Test-AllowedPolicyPathMatches {
     if ([string]::IsNullOrWhiteSpace($AllowedPolicyPath)) {
         return $false
     }
-    if ($RegistryPath -eq $AllowedPolicyPath) {
-        return $true
-    }
-
     # Older backups may record the -PolicyPath exactly as typed (for example a relative path).
     # Compare the resolved filesystem paths too, but never for registry keys or defaults domains.
     if (-not (Test-ManagedPolicyPath -Path $RegistryPath) -or -not (Test-ManagedPolicyPath -Path $AllowedPolicyPath)) {

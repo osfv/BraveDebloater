@@ -3,7 +3,8 @@
 function Show-PolicyList {
     param(
         [string[]]$PolicyNames,
-        [hashtable]$PolicyDefinitions
+        [hashtable]$PolicyDefinitions,
+        [string[]]$RemoveNames = @()
     )
 
     $rows = foreach ($name in $PolicyNames) {
@@ -17,6 +18,10 @@ function Show-PolicyList {
     }
 
     $rows | Format-Table -AutoSize -Wrap
+    foreach ($name in $RemoveNames) {
+        Write-Step "Remove if present: $name. Brave settings control this value again."
+    }
+    Write-Step "Policy plan: $(@($PolicyNames).Count) to set, $(@($RemoveNames).Count) to remove if present."
 }
 
 function Show-FeatureList {
