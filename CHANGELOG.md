@@ -3,9 +3,9 @@
 ## Unreleased
 
 - Fixed profile preference cleanup on PowerShell 7 rewriting unrelated date strings in `Preferences` (for example `+02:00` offsets came back in local time). JSON is now parsed with `-DateKind String` on PowerShell 7.5 and newer; PowerShell 7.0 to 7.4 skip a `Preferences` file that contains date values with a warning instead of changing it. Managed policy JSON and backups use the same parser, so on PowerShell 7.5 and newer a date-like string policy value also survives a restore.
-- Apply runs now end with the exact restore arguments for the backup they wrote, including `-PolicyPath`, `-UserSid`, `-ProfileRoot`, or `-Channel` when needed.
+- Apply runs now end with the exact restore arguments for the backup they wrote, quoted for PowerShell, including `-PolicyPath` and `-UserSid` when used and the resolved `-ProfileRoot` whenever the backup holds profile files.
 - `-UndoFromBackup Latest` restores the newest backup in `-BackupDirectory` and prints which file it picked.
-- `-ListBackups` shows each backup's policy value count, profile file count, and policy target.
+- `-ListBackups` shows each backup's policy value count, profile file count, and policy target, or why a restore would reject it.
 - `-Doctor` explains how to pass `-ProfileRoot` when no profile folder is known for the platform, instead of printing an empty path.
 
 ## 0.5.0 - 2026-09-23

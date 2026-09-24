@@ -121,7 +121,7 @@ $applyChanges = $Apply -and -not $WhatIfPreference
 $isWhatIf = $Apply -and $WhatIfPreference
 
 if ($ListBackups -or $PruneBackupsOlderThanDays -ge 0 -or $KeepLatestBackups -ge 0) {
-    Invoke-BackupRetention -Directory $BackupDirectory -OlderThanDays $PruneBackupsOlderThanDays -KeepLatest $KeepLatestBackups -DoApply:$applyChanges
+    Invoke-BackupRetention -Directory $BackupDirectory -Manifest $manifest -OlderThanDays $PruneBackupsOlderThanDays -KeepLatest $KeepLatestBackups -DoApply:$applyChanges
     return
 }
 
@@ -457,9 +457,7 @@ if (-not $applyChanges) {
 else {
     Write-Step "Done. Set $appliedPolicyCount of $($policyNames.Count) policy value(s).$obsoleteDoneSummary Restart Brave, then open brave://policy to check the applied policies."
     if ($null -ne $backupPath) {
-        $undoProfileRoot = if ($IncludeProfilePreferences -and $PSBoundParameters.ContainsKey('ProfileRoot')) { $ProfileRoot } else { '' }
-        $undoChannel = if ($IncludeProfilePreferences) { $Channel } else { 'Stable' }
-        $undoArguments = Get-UndoArgumentText -BackupPath $backupPath -Target $policyTarget -UserSid $UserSid -PolicyPathUsed:(-not [string]::IsNullOrWhiteSpace($PolicyPath)) -ProfileRoot $undoProfileRoot -Channel $undoChannel
+        $undoArguments = Get-UndoArgumentText -BackupPath $backupPath -Target $policyTarget -UserSid $UserSid -PolicyPathUsed:(-not [string]::IsNullOrWhiteSpace($PolicyPath)) -ProfileRoot $ProfileRoot
         Write-Step "To undo this run, rerun BraveDebloater with: $undoArguments"
     }
 }

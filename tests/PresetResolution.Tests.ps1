@@ -137,7 +137,10 @@ Describe 'Backup retention' {
     BeforeAll {
         $root = Split-Path -Parent $PSScriptRoot
         . (Join-Path $root 'src/Common.ps1')
+        . (Join-Path $root 'src/Manifest.ps1')
+        . (Join-Path $root 'src/PlatformPolicy.ps1')
         . (Join-Path $root 'src/Backup.ps1')
+        $manifest = Get-Content -LiteralPath (Join-Path (Join-Path $root 'config') 'policies.json') -Raw | ConvertFrom-Json
     }
 
     It 'keeps deleting backups after one removal fails' {
@@ -155,7 +158,7 @@ Describe 'Backup retention' {
             }
             Mock Write-Warning {}
 
-            Invoke-BackupRetention -Directory $directory -KeepLatest 0 -DoApply
+            Invoke-BackupRetention -Directory $directory -Manifest $manifest -KeepLatest 0 -DoApply
 
             Should -Invoke Remove-Item -Times 3 -Exactly
             Should -Invoke Write-Warning -Times 1 -Exactly

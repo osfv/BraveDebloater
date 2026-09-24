@@ -409,11 +409,29 @@ try {
     }
     Assert-TextDoesNotContain -Text $linuxApplyOutput -Unexpected 'obsolete' -Context 'Linux policy apply output'
     $linuxBackup = @(Get-ChildItem -LiteralPath $linuxBackupDirectory -Filter 'BraveDebloater-*.json')[0].FullName
-    Assert-TextContains -Text $linuxApplyOutput -Expected "To undo this run, rerun BraveDebloater with: -UndoFromBackup `"$linuxBackup`" -PolicyPath `"$linuxPolicyPath`" -Apply" -Context 'Linux policy apply undo hint'
+    Assert-TextContains -Text $linuxApplyOutput -Expected "To undo this run, rerun BraveDebloater with: -UndoFromBackup '$linuxBackup' -PolicyPath '$linuxPolicyPath' -Apply" -Context 'Linux policy apply undo hint'
+
+    # The printed undo arguments must survive being pasted into PowerShell, even with $, quotes, and backticks in paths.
+    $quotedUndoRoot = Join-Path $tempRoot 'Undo $HOME ''quoted'' `n'
+    $quotedPolicyPath = Join-Path $quotedUndoRoot 'policy.json'
+    $quotedApplyOutput = (& $scriptPath -Platform Linux -PolicyPath $quotedPolicyPath -OnlyFeature Rewards -BackupDirectory (Join-Path $quotedUndoRoot 'backups') -Apply *>&1 | Out-String -Width 4096)
+    $quotedHint = [regex]::Match($quotedApplyOutput, 'rerun BraveDebloater with: (.+) -Apply').Groups[1].Value
+    $quotedRestoreOutput = (Invoke-Expression "& `$scriptPath $quotedHint" *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $quotedRestoreOutput -Expected 'Would remove BraveRewardsDisabled' -Context 'pasted undo hint with special characters'
 
     $linuxListBackupsOutput = (& $scriptPath -ListBackups -BackupDirectory $linuxBackupDirectory *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $linuxListBackupsOutput -Expected "- 1 policy value(s), 0 profile file(s), target $linuxPolicyPath" -Context '-ListBackups backup details'
-    Assert-TextContains -Text $listBackupsOutput -Expected '- not a BraveDebloater backup' -Context '-ListBackups placeholder backup details'
+    Assert-TextContains -Text $listBackupsOutput -Expected "- not restorable: Backup is missing required property 'schemaVersion'." -Context '-ListBackups placeholder backup details'
+    $unmanagedBackupDirectory = Join-Path $tempRoot 'UnmanagedPolicyBackups'
+    New-Item -ItemType Directory -Path $unmanagedBackupDirectory -Force | Out-Null
+    [ordered]@{
+        schemaVersion = 1
+        registryPath = 'Registry::HKEY_CURRENT_USER\Software\Policies\BraveSoftware\Brave'
+        policies = @([ordered]@{ name = 'NotABravePolicy'; existed = $false; value = $null; kind = $null })
+        profileFiles = @()
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $unmanagedBackupDirectory 'BraveDebloater-20260101-010101-001.json') -Encoding UTF8
+    $unmanagedListOutput = (& $scriptPath -ListBackups -BackupDirectory $unmanagedBackupDirectory *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $unmanagedListOutput -Expected "- not restorable: Backup policy 'NotABravePolicy' is not managed by this manifest." -Context '-ListBackups unrestorable backup details'
 
     $latestRestoreOutput = (& $scriptPath -UndoFromBackup Latest -BackupDirectory $linuxBackupDirectory -PolicyPath $linuxPolicyPath *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $latestRestoreOutput -Expected "Latest backup: $linuxBackup" -Context '-UndoFromBackup Latest output'
@@ -693,7 +711,7 @@ try {
     if ([string]$restoredJson.profile.name -ne $utf8Name -or $restoredJson.brave.rewards.enabled -ne $true) {
         throw 'Profile restore did not bring back the original Preferences content.'
     }
-    Assert-TextContains -Text $utf8ApplyOutput -Expected "-ProfileRoot `"$utf8ProfileRoot`" -Apply" -Context 'profile apply undo hint'
+    Assert-TextContains -Text $utf8ApplyOutput -Expected "-ProfileRoot '$utf8ProfileRoot' -Apply" -Context 'profile apply undo hint'
 
     # Rewriting Preferences must keep unrelated date strings exactly as written. PowerShell 7 before
     # 7.5 cannot parse them as text, so those versions skip the file instead of changing it.
