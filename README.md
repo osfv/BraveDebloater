@@ -239,7 +239,7 @@ The target is exactly `HKEY_USERS\<SID>\Software\Policies\BraveSoftware\Brave`. 
 
 macOS current-user mode uses `defaults write com.brave.Browser`. macOS machine-wide mode writes `/Library/Managed Preferences/com.brave.Browser.plist`.
 
-Linux writes JSON policy values to `/etc/brave/policies/managed/BraveDebloater.json`.
+Linux writes JSON policy values to `/etc/brave/policies/managed/BraveDebloater.json`. Other values in that file, including date strings, are kept as written. On PowerShell 7.0 to 7.4, which cannot keep date strings as text, apply and restore stop before changing a policy file that contains them.
 
 Android and iOS/iPadOS do not support local writes from this script. Use `-ExportPolicyPath` to create an MDM payload. Brave documents limited iOS/iPadOS support for Playlist, VPN, News, Talk, Rewards, and AI Chat policies.
 
