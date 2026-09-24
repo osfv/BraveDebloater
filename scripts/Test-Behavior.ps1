@@ -409,7 +409,11 @@ try {
     }
     Assert-TextDoesNotContain -Text $linuxApplyOutput -Unexpected 'obsolete' -Context 'Linux policy apply output'
     $linuxBackup = @(Get-ChildItem -LiteralPath $linuxBackupDirectory -Filter 'BraveDebloater-*.json')[0].FullName
-    Assert-TextContains -Text $linuxApplyOutput -Expected "To undo this run, rerun BraveDebloater with: -UndoFromBackup '$linuxBackup' -PolicyPath '$linuxPolicyPath' -Apply" -Context 'Linux policy apply undo hint'
+    $linuxHint = [regex]::Match($linuxApplyOutput, 'To undo this run, rerun BraveDebloater with: (.+) -Apply').Groups[1].Value
+    Assert-TextContains -Text $linuxHint -Expected '-PolicyPath ' -Context 'Linux policy apply undo hint'
+    Assert-TextDoesNotContain -Text $linuxHint -Unexpected '-ProfileRoot' -Context 'Linux policy apply undo hint'
+    $linuxHintRestoreOutput = (Invoke-Expression "& `$scriptPath $linuxHint" *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $linuxHintRestoreOutput -Expected 'Would remove BraveRewardsDisabled' -Context 'pasted Linux policy undo hint'
 
     # The printed undo arguments must survive being pasted into PowerShell, even with $, quotes, and backticks in paths.
     $quotedUndoRoot = Join-Path $tempRoot 'Undo $HOME ''quoted'' `n'
@@ -418,6 +422,18 @@ try {
     $quotedHint = [regex]::Match($quotedApplyOutput, 'rerun BraveDebloater with: (.+) -Apply').Groups[1].Value
     $quotedRestoreOutput = (Invoke-Expression "& `$scriptPath $quotedHint" *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $quotedRestoreOutput -Expected 'Would remove BraveRewardsDisabled' -Context 'pasted undo hint with special characters'
+
+    # Through BraveDebloat.exe the hint is meant for cmd.exe, which only understands double quotes.
+    $launcherUndoRoot = Join-Path $tempRoot 'Launcher Undo'
+    $launcherPolicyPath = Join-Path $launcherUndoRoot 'policy.json'
+    $env:BRAVEDEBLOATER_LAUNCHER = '1'
+    try {
+        $launcherApplyOutput = (& $scriptPath -Platform Linux -PolicyPath $launcherPolicyPath -OnlyFeature Rewards -BackupDirectory (Join-Path $launcherUndoRoot 'backups') -Apply *>&1 | Out-String -Width 4096)
+    }
+    finally {
+        Remove-Item -LiteralPath Env:BRAVEDEBLOATER_LAUNCHER
+    }
+    Assert-TextContains -Text $launcherApplyOutput -Expected "-PolicyPath `"$launcherPolicyPath`" -Apply" -Context 'launcher undo hint'
 
     $linuxListBackupsOutput = (& $scriptPath -ListBackups -BackupDirectory $linuxBackupDirectory *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $linuxListBackupsOutput -Expected "- 1 policy value(s), 0 profile file(s), target $linuxPolicyPath" -Context '-ListBackups backup details'
@@ -711,7 +727,9 @@ try {
     if ([string]$restoredJson.profile.name -ne $utf8Name -or $restoredJson.brave.rewards.enabled -ne $true) {
         throw 'Profile restore did not bring back the original Preferences content.'
     }
-    Assert-TextContains -Text $utf8ApplyOutput -Expected "-ProfileRoot '$utf8ProfileRoot' -Apply" -Context 'profile apply undo hint'
+    $utf8Hint = [regex]::Match($utf8ApplyOutput, 'rerun BraveDebloater with: (.+) -Apply').Groups[1].Value
+    Assert-TextContains -Text $utf8Hint -Expected '-ProfileRoot ' -Context 'profile apply undo hint'
+    Assert-TextContains -Text (Invoke-Expression "& `$scriptPath $utf8Hint" *>&1 | Out-String -Width 4096) -Expected 'Would restore profile file' -Context 'pasted profile undo hint'
 
     # Rewriting Preferences must keep unrelated date strings exactly as written. PowerShell 7 before
     # 7.5 cannot parse them as text, so those versions skip the file instead of changing it.

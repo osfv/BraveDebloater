@@ -286,10 +286,18 @@ function Resolve-BackupPath {
     return $latest
 }
 
-function ConvertTo-PowerShellLiteral {
+function ConvertTo-CommandLineArgument {
     param([Parameter(Mandatory = $true)][string]$Text)
 
-    # Single quotes keep `$` and backticks literal; an embedded quote is escaped by doubling it.
+    if ($Text -match '^[A-Za-z0-9_.:\\/~-]+$') {
+        return $Text
+    }
+    # BraveDebloat.exe usually runs from cmd.exe, which only understands double quotes (Windows paths
+    # cannot contain '"'). Elsewhere the hint is pasted into PowerShell, where single quotes keep `$`
+    # and backticks literal and an embedded quote is escaped by doubling it.
+    if ($env:BRAVEDEBLOATER_LAUNCHER -eq '1') {
+        return '"' + $Text + '"'
+    }
     return "'" + $Text.Replace("'", "''") + "'"
 }
 
@@ -303,19 +311,19 @@ function Get-UndoArgumentText {
     )
 
     $arguments = New-Object System.Collections.Generic.List[string]
-    [void]$arguments.Add("-UndoFromBackup $(ConvertTo-PowerShellLiteral -Text $BackupPath)")
+    [void]$arguments.Add("-UndoFromBackup $(ConvertTo-CommandLineArgument -Text $BackupPath)")
     if (-not [string]::IsNullOrWhiteSpace($UserSid)) {
         [void]$arguments.Add("-UserSid $UserSid")
     }
     if ($PolicyPathUsed -and $Target.Kind -in @('JsonFile', 'MacOSPlist')) {
-        [void]$arguments.Add("-PolicyPath $(ConvertTo-PowerShellLiteral -Text $Target.Path)")
+        [void]$arguments.Add("-PolicyPath $(ConvertTo-CommandLineArgument -Text $Target.Path)")
     }
 
     # The restore only accepts profile files under -ProfileRoot, so pin the root this run used instead of
     # relying on the default being resolved the same way later (another user, channel, or LOCALAPPDATA).
     $backup = Get-JsonFileContent -Path $BackupPath
     if (-not [string]::IsNullOrWhiteSpace($ProfileRoot) -and @($backup.profileFiles).Count -gt 0) {
-        [void]$arguments.Add("-ProfileRoot $(ConvertTo-PowerShellLiteral -Text (Get-FullFileSystemPath -Path $ProfileRoot))")
+        [void]$arguments.Add("-ProfileRoot $(ConvertTo-CommandLineArgument -Text (Get-FullFileSystemPath -Path $ProfileRoot))")
     }
     [void]$arguments.Add('-Apply')
     return ($arguments.ToArray() -join ' ')
