@@ -255,6 +255,74 @@ function Get-BackupFiles {
     return @(Get-ChildItem -LiteralPath $fullDirectory -Filter 'BraveDebloater-*.json' | Where-Object { -not $_.PSIsContainer } | Sort-Object LastWriteTime -Descending)
 }
 
+function Resolve-BackupPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [string]$Directory
+    )
+
+    if ($Path -ne 'Latest') {
+        return $Path
+    }
+
+    $latest = (Get-BackupSummary -Directory $Directory).Latest
+    if ([string]::IsNullOrWhiteSpace($latest)) {
+        throw "No backups found in $(Get-FullFileSystemPath -Path $Directory). Pass a backup file to -UndoFromBackup, or point -BackupDirectory at the folder that holds your backups."
+    }
+    Write-Step "Latest backup: $latest"
+    return $latest
+}
+
+function Get-UndoArgumentText {
+    param(
+        [Parameter(Mandatory = $true)][string]$BackupPath,
+        [Parameter(Mandatory = $true)]$Target,
+        [string]$UserSid,
+        [switch]$PolicyPathUsed,
+        [string]$ProfileRoot,
+        [string]$Channel = 'Stable'
+    )
+
+    # Double quotes keep the arguments usable from PowerShell, cmd.exe (BraveDebloat.exe), and POSIX shells.
+    $arguments = New-Object System.Collections.Generic.List[string]
+    [void]$arguments.Add("-UndoFromBackup `"$BackupPath`"")
+    if (-not [string]::IsNullOrWhiteSpace($UserSid)) {
+        [void]$arguments.Add("-UserSid $UserSid")
+    }
+    if ($PolicyPathUsed -and $Target.Kind -in @('JsonFile', 'MacOSPlist')) {
+        [void]$arguments.Add("-PolicyPath `"$($Target.Path)`"")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ProfileRoot)) {
+        [void]$arguments.Add("-ProfileRoot `"$(Get-FullFileSystemPath -Path $ProfileRoot)`"")
+    }
+    elseif ($Channel -ne 'Stable') {
+        [void]$arguments.Add("-Channel $Channel")
+    }
+    [void]$arguments.Add('-Apply')
+    return ($arguments.ToArray() -join ' ')
+}
+
+function Get-BackupDescription {
+    param([Parameter(Mandatory = $true)][string]$BackupPath)
+
+    try {
+        $backup = Get-JsonFileContent -Path $BackupPath
+    }
+    catch {
+        return 'unreadable'
+    }
+    if ($backup -isnot [System.Management.Automation.PSCustomObject] -or $null -eq $backup.PSObject.Properties['policies'] -or $null -eq $backup.PSObject.Properties['registryPath']) {
+        return 'not a BraveDebloater backup'
+    }
+
+    $profileFileCount = 0
+    if ($null -ne $backup.PSObject.Properties['profileFiles']) {
+        $profileFileCount = @($backup.profileFiles).Count
+    }
+    $target = ([string]$backup.registryPath) -replace '^Registry::', ''
+    return ('{0} policy value(s), {1} profile file(s), target {2}' -f @($backup.policies).Count, $profileFileCount, $target)
+}
+
 function Invoke-BackupRetention {
     param(
         [string]$Directory,
@@ -266,7 +334,7 @@ function Invoke-BackupRetention {
     $files = @(Get-BackupFiles -Directory $Directory)
     Write-Step "Backups: $($files.Count) found in $(Get-FullFileSystemPath -Path $Directory)"
     foreach ($file in $files) {
-        Write-Step ("Backup: {0} ({1:yyyy-MM-dd HH:mm:ss})" -f $file.Name, $file.LastWriteTime)
+        Write-Step ("Backup: {0} ({1:yyyy-MM-dd HH:mm:ss}) - {2}" -f $file.Name, $file.LastWriteTime, (Get-BackupDescription -BackupPath $file.FullName))
     }
 
     $pruneRequested = $OlderThanDays -ge 0 -or $KeepLatest -ge 0

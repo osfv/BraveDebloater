@@ -194,7 +194,7 @@ List backups or preview retention cleanup:
 .\Invoke-BraveDebloat.ps1 -KeepLatestBackups 10
 ```
 
-Add `-Apply` only after the preview lists the backups you expect to delete. Pruning a backup also removes the profile `Preferences` copies that belong only to it.
+Each listed backup shows how many policy values and profile files it holds and which policy target it restores. Add `-Apply` only after the preview lists the backups you expect to delete. Pruning a backup also removes the profile `Preferences` copies that belong only to it.
 
 Apply the default cleanup and lock a safe Shields baseline:
 
@@ -355,6 +355,8 @@ Apply a restore:
 ```powershell
 .\Invoke-BraveDebloat.ps1 -UndoFromBackup .\backups\BraveDebloater-YYYYMMDD-HHMMSS-fff.json -Apply
 ```
+
+Every apply run ends with the exact restore arguments for its backup, including `-PolicyPath`, `-UserSid`, `-ProfileRoot`, or `-Channel` when the restore needs them. Use `-UndoFromBackup Latest` to pick the newest backup in `-BackupDirectory`; the run prints which file it chose, so preview it before adding `-Apply`.
 
 Restore validates the backup before it writes. Registry restores are limited to Brave policy keys, the recorded policy kind must match the recorded path (a Linux JSON backup only restores to the Linux managed file or your `-PolicyPath`, a macOS plist backup only to the managed plist or your `-PolicyPath`), and Linux JSON or macOS values are written back with the exact type the backup recorded. Profile file restores are limited to `Preferences` files under the selected `-ProfileRoot`; each backup keeps its own copies under `backups/profile-files/<backup-name>/`, and pruning only deletes copies inside the pruned backup's own folder.
 

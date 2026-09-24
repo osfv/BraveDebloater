@@ -127,7 +127,8 @@ if ($ListBackups -or $PruneBackupsOlderThanDays -ge 0 -or $KeepLatestBackups -ge
 
 if ($UndoFromBackup) {
     $allowedUserPolicyPath = if ($userSidSpecified) { Get-RegistryPolicyPath -ScopeName 'CurrentUser' -UserSid $UserSid } else { $null }
-    Restore-RegistryBackup -BackupPath $UndoFromBackup -Manifest $manifest -ProfileRoot $ProfileRoot -AllowedPolicyPath $PolicyPath -AllowedUserPolicyPath $allowedUserPolicyPath -DoApply:$applyChanges
+    $restoreBackupPath = Resolve-BackupPath -Path $UndoFromBackup -Directory $BackupDirectory
+    Restore-RegistryBackup -BackupPath $restoreBackupPath -Manifest $manifest -ProfileRoot $ProfileRoot -AllowedPolicyPath $PolicyPath -AllowedUserPolicyPath $allowedUserPolicyPath -DoApply:$applyChanges
     if (-not $applyChanges) {
         if ($isWhatIf) {
             Write-Step 'Undo preview complete. No files or policies were restored. Rerun with -Apply without -WhatIf to restore the backup.'
@@ -455,4 +456,10 @@ if (-not $applyChanges) {
 }
 else {
     Write-Step "Done. Set $appliedPolicyCount of $($policyNames.Count) policy value(s).$obsoleteDoneSummary Restart Brave, then open brave://policy to check the applied policies."
+    if ($null -ne $backupPath) {
+        $undoProfileRoot = if ($IncludeProfilePreferences -and $PSBoundParameters.ContainsKey('ProfileRoot')) { $ProfileRoot } else { '' }
+        $undoChannel = if ($IncludeProfilePreferences) { $Channel } else { 'Stable' }
+        $undoArguments = Get-UndoArgumentText -BackupPath $backupPath -Target $policyTarget -UserSid $UserSid -PolicyPathUsed:(-not [string]::IsNullOrWhiteSpace($PolicyPath)) -ProfileRoot $undoProfileRoot -Channel $undoChannel
+        Write-Step "To undo this run, rerun BraveDebloater with: $undoArguments"
+    }
 }

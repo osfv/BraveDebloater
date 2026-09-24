@@ -408,6 +408,24 @@ try {
         throw 'Linux policy apply did not write BraveRewardsDisabled = true.'
     }
     Assert-TextDoesNotContain -Text $linuxApplyOutput -Unexpected 'obsolete' -Context 'Linux policy apply output'
+    $linuxBackup = @(Get-ChildItem -LiteralPath $linuxBackupDirectory -Filter 'BraveDebloater-*.json')[0].FullName
+    Assert-TextContains -Text $linuxApplyOutput -Expected "To undo this run, rerun BraveDebloater with: -UndoFromBackup `"$linuxBackup`" -PolicyPath `"$linuxPolicyPath`" -Apply" -Context 'Linux policy apply undo hint'
+
+    $linuxListBackupsOutput = (& $scriptPath -ListBackups -BackupDirectory $linuxBackupDirectory *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $linuxListBackupsOutput -Expected "- 1 policy value(s), 0 profile file(s), target $linuxPolicyPath" -Context '-ListBackups backup details'
+    Assert-TextContains -Text $listBackupsOutput -Expected '- not a BraveDebloater backup' -Context '-ListBackups placeholder backup details'
+
+    $latestRestoreOutput = (& $scriptPath -UndoFromBackup Latest -BackupDirectory $linuxBackupDirectory -PolicyPath $linuxPolicyPath *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $latestRestoreOutput -Expected "Latest backup: $linuxBackup" -Context '-UndoFromBackup Latest output'
+    Assert-TextContains -Text $latestRestoreOutput -Expected 'Would remove BraveRewardsDisabled' -Context '-UndoFromBackup Latest output'
+    $latestMissingMessage = ''
+    try {
+        & $scriptPath -UndoFromBackup Latest -BackupDirectory (Join-Path $tempRoot 'NoBackupsHere') | Out-Null
+    }
+    catch {
+        $latestMissingMessage = $_.Exception.Message
+    }
+    Assert-TextContains -Text $latestMissingMessage -Expected 'No backups found in' -Context '-UndoFromBackup Latest without backups'
 
     $leftoverPolicyPath = Join-Path $tempRoot 'leftover-obsolete-policy.json'
     $leftoverBackupDirectory = Join-Path $tempRoot 'LeftoverBackups'
@@ -675,6 +693,7 @@ try {
     if ([string]$restoredJson.profile.name -ne $utf8Name -or $restoredJson.brave.rewards.enabled -ne $true) {
         throw 'Profile restore did not bring back the original Preferences content.'
     }
+    Assert-TextContains -Text $utf8ApplyOutput -Expected "-ProfileRoot `"$utf8ProfileRoot`" -Apply" -Context 'profile apply undo hint'
 
     # Rewriting Preferences must keep unrelated date strings exactly as written. PowerShell 7 before
     # 7.5 cannot parse them as text, so those versions skip the file instead of changing it.
