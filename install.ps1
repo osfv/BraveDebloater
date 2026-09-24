@@ -10,13 +10,13 @@ One-line install (Windows PowerShell 5.1 or PowerShell 7 on any platform):
 
 Pass options by turning the download into a script block:
 
-    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1))) -Version 0.5.0 -Destination C:\Tools\BraveDebloater
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1))) -Version 0.6.0 -Destination C:\Tools\BraveDebloater
 
 Nothing about Brave is changed by this script. It only places the tool on disk and prints the preview command to run next.
 Re-running it upgrades an existing install in place and keeps the backups/ folder.
 
 .PARAMETER Version
-Release to install, for example 0.5.0 or v0.5.0. Default: the latest GitHub release.
+Release to install, for example 0.6.0 or v0.6.0. Default: the latest GitHub release.
 
 .PARAMETER Destination
 Folder to install into. Default: %LOCALAPPDATA%\Programs\BraveDebloater on Windows, $XDG_DATA_HOME/BraveDebloater or ~/.local/share/BraveDebloater elsewhere.
@@ -115,7 +115,7 @@ function Install-BraveDebloater {
         $release = Invoke-RestMethod -Uri $apiUrl -Headers @{ 'User-Agent' = 'BraveDebloater-install'; Accept = 'application/vnd.github+json' } -UseBasicParsing
         $tag = [string]$release.tag_name
         if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
-            throw "Could not read the latest release tag from GitHub (got '$tag'). Pass -Version, for example -Version 0.5.0."
+            throw "Could not read the latest release tag from GitHub (got '$tag'). Pass -Version, for example -Version 0.6.0."
         }
         return $tag
     }
@@ -200,7 +200,7 @@ function Install-BraveDebloater {
     $requestedVersion = ''
     if (-not [string]::IsNullOrWhiteSpace($Version) -and $Version -ne 'latest') {
         if ($Version -notmatch '^v?([0-9]+\.[0-9]+\.[0-9]+)$') {
-            throw "-Version must look like 0.5.0 or v0.5.0, got '$Version'."
+            throw "-Version must look like 0.6.0 or v0.6.0, got '$Version'."
         }
         $requestedVersion = $Matches[1]
     }
