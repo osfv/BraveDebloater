@@ -1,0 +1,75 @@
+name: Weekly Brave policy template check
+
+on:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: policy-templates
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Download latest policy templates
+        shell: pwsh
+        run: Invoke-WebRequest -Uri 'https://brave-browser-downloads.s3.brave.com/latest/policy_templates.zip' -OutFile "$env:RUNNER_TEMP/policy_templates.zip"
+
+      - name: Compare with the recorded snapshot
+        id: compare
+        shell: pwsh
+        run: ./scripts/Compare-PolicyTemplates.ps1 -TemplateZipPath "$env:RUNNER_TEMP/policy_templates.zip" -SummaryPath "$env:RUNNER_TEMP/summary.md" -Update
+
+      - name: Record the new template version
+        if: steps.compare.outputs.changed == 'true'
+        shell: pwsh
+        run: ./scripts/Update-PolicyTemplateVersion.ps1 -TemplateZipPath "$env:RUNNER_TEMP/policy_templates.zip"
+
+      - name: Validate the manifest against the new templates
+        if: steps.compare.outputs.changed == 'true'
+        shell: pwsh
+        run: |
+          $result = try {
+            ./scripts/Test-LatestPolicyTemplates.ps1 -TemplateZipPath "$env:RUNNER_TEMP/policy_templates.zip" -RequireVersionMatch *>&1 | Out-String
+            "Manifest validation passed."
+          }
+          catch {
+            "**Manifest validation failed:** $($_.Exception.Message)"
+          }
+          Add-Content -LiteralPath "$env:RUNNER_TEMP/summary.md" -Value "`n### Manifest validation`n$result"
+
+      - name: Open or update the pull request
+        if: steps.compare.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.compare.outputs.template_version }}
+        run: |
+          branch="automation/policy-templates"
+          title="Update Brave policy templates to ${VERSION}"
+          {
+            cat "$RUNNER_TEMP/summary.md"
+            echo
+            echo "Opened by the weekly policy template check. Review new policies before adding any of them to config/policies.json. CI does not run automatically on PRs opened by GitHub Actions; close and reopen this PR to start it."
+          } > "$RUNNER_TEMP/body.md"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add config/policies.json config/policy-template-snapshot.json docs/debloatable-validation.md
+          git commit -m "$title"
+          git push --force origin "$branch"
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')" ]; then
+            gh pr edit "$branch" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --base main --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          fi

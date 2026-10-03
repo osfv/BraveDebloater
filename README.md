@@ -230,6 +230,15 @@ Use PowerShell `-WhatIf` when you want a no-write preview even with `-Apply` pre
 .\Invoke-BraveDebloat.ps1 -Preset Extreme -Apply -WhatIf
 ```
 
+Save an HTML report of a dry run or an applied run. It lists every policy with its current and new value, and after `-Apply` it includes the exact undo command:
+
+```powershell
+.\Invoke-BraveDebloat.ps1 -Preset Extreme -ReportPath .\brave-report.html
+.\Invoke-BraveDebloat.ps1 -Preset Extreme -Apply -ReportPath .\brave-report.html
+```
+
+The report is one self-contained file, so you can open it offline or send it to someone. It is not written under `-WhatIf`.
+
 Exports also honor `-WhatIf`: add it to an `-ExportPolicyPath` command to preview without creating or overwriting the export file. Use one command mode at a time; combining diagnostics, policy listings, exports, restores, or backup maintenance now stops with a clear error. `-ListBackups` can still be combined with backup retention options.
 
 ## Platform Support
@@ -428,6 +437,14 @@ Validate against a downloaded Brave policy template zip:
 ```powershell
 .\scripts\Test-LatestPolicyTemplates.ps1 -TemplateZipPath .\policy_templates.zip
 ```
+
+Every Monday, `.github/workflows/policy-templates.yml` downloads the latest templates and compares them with `config/policy-template-snapshot.json`. When Brave adds, removes, or deprecates a policy, or ships a new template version, it opens or updates one pull request from `automation/policy-templates` that records the new snapshot and version and lists the changed policies. It flags any policy BraveDebloater manages that Brave removed or deprecated. To run the same comparison locally:
+
+```powershell
+.\scripts\Compare-PolicyTemplates.ps1 -TemplateZipPath .\policy_templates.zip
+```
+
+The workflow needs **Settings > Actions > General > Allow GitHub Actions to create and approve pull requests** turned on.
 
 A zip newer than the recorded template version passes with a warning, because Brave's `latest` download changes with every release. Add `-RequireVersionMatch` before a release so the recorded version is exact. The check also confirms each manifest value fits the ADMX definition (boolean, enum, integer, or text).
 

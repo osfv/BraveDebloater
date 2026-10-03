@@ -43,6 +43,8 @@ param(
 
     [string]$ExportPolicyPath,
 
+    [string]$ReportPath,
+
     [string]$BackupDirectory,
 
     [string]$UndoFromBackup,
@@ -89,6 +91,14 @@ $manifest = Get-Manifest
 $platformName = Resolve-PlatformName -Name $Platform
 
 Assert-CommandModes -Parameters $PSBoundParameters
+
+$reportRequested = -not [string]::IsNullOrWhiteSpace($ReportPath)
+if ($reportRequested) {
+    if ($Version -or $Doctor -or $List -or $ListFeatures -or $UndoFromBackup -or $ExportPolicyPath -or $ListBackups -or $PruneBackupsOlderThanDays -ge 0 -or $KeepLatestBackups -ge 0) {
+        throw '-ReportPath works with a normal dry run or -Apply run only. Remove -Version, -Doctor, -List, -ListFeatures, -UndoFromBackup, -ExportPolicyPath, and backup listing/retention options. No changes were made.'
+    }
+    Assert-RunReportPath -Path $ReportPath
+}
 
 if ($Version) {
     Show-VersionInfo -ToolVersion $ToolVersion -Manifest $manifest -PlatformName $platformName
@@ -386,55 +396,87 @@ if ($applyChanges -and -not $NoBackup) {
 
 # Preview runs annotate each planned write with the value Brave currently has, when the target is readable.
 $currentPolicyValues = $null
-if (-not $applyChanges -and $policyTarget.Kind -ne 'MobileMDM') {
+if ((-not $applyChanges -or $reportRequested) -and $policyTarget.Kind -ne 'MobileMDM') {
     $currentPolicyValues = Get-PolicyValueMap -Target $policyTarget -PolicyNames $policyNames.ToArray()
+}
+
+$reportRows = New-Object System.Collections.Generic.List[object]
+$policyFeatureLabels = @{}
+foreach ($feature in $features) {
+    foreach ($name in @($feature.policies)) {
+        if (-not $policyFeatureLabels.ContainsKey([string]$name)) {
+            $policyFeatureLabels[[string]$name] = [string]$feature.label
+        }
+    }
 }
 
 $appliedPolicyCount = 0
 $alreadySetCount = 0
 foreach ($policyName in $policyNames) {
     $definition = $policyDefinitions[$policyName]
+    $stateNote = Get-PolicyStateNote -CurrentValues $currentPolicyValues -Name $policyName -Definition $definition
+    $reportStatus = $null
     if (-not $applyChanges) {
-        $stateNote = Get-PolicyStateNote -CurrentValues $currentPolicyValues -Name $policyName -Definition $definition
         if ($stateNote.AlreadySet) {
             $alreadySetCount++
         }
         Write-DryRun "Would set $policyName = $($definition.value) ($($definition.reason))$($stateNote.Text)"
-        continue
+        $reportStatus = if ($stateNote.AlreadySet) { 'Already set' } else { 'Would set' }
     }
-
-    if ($PSCmdlet.ShouldProcess($policyTarget.Path, "Set $policyName to $($definition.value)")) {
+    elseif ($PSCmdlet.ShouldProcess($policyTarget.Path, "Set $policyName to $($definition.value)")) {
         Set-PolicyValue -Target $policyTarget -Name $policyName -Definition $definition
         $appliedPolicyCount++
         Write-Step "Set $policyName."
+        $reportStatus = if ($stateNote.AlreadySet) { 'Already set' } else { 'Set' }
+    }
+    else {
+        $reportStatus = 'Skipped'
+    }
+    if ($reportRequested) {
+        [void]$reportRows.Add([pscustomobject]@{
+                Kind = 'Policy'; Name = $policyName; Feature = [string]$policyFeatureLabels[$policyName]; Reason = [string]$definition.reason
+                Before = (Get-RunReportCurrentText -CurrentValues $currentPolicyValues -Name $policyName); NewValue = (Get-RunReportValueText -Value $definition.value); Status = $reportStatus
+            })
     }
 }
 
 $removedObsoleteCount = 0
 foreach ($policyName in $obsoletePolicyNames) {
+    $reportStatus = 'Would remove'
     if (-not $applyChanges) {
         Write-DryRun "Would remove $policyName because Brave marks it obsolete."
-        continue
     }
-
-    if ($PSCmdlet.ShouldProcess($policyTarget.Path, "Remove obsolete policy $policyName")) {
+    elseif ($PSCmdlet.ShouldProcess($policyTarget.Path, "Remove obsolete policy $policyName")) {
         Remove-PolicyValue -Target $policyTarget -Name $policyName
         $removedObsoleteCount++
         Write-Step "Removed obsolete $policyName."
+        $reportStatus = 'Removed'
+    }
+    else {
+        $reportStatus = 'Skipped'
+    }
+    if ($reportRequested) {
+        [void]$reportRows.Add([pscustomobject]@{ Kind = 'Removal'; Name = $policyName; Feature = ''; Reason = 'Brave marks this policy obsolete.'; Before = 'Set'; NewValue = ''; Status = $reportStatus })
     }
 }
 
 $removedDnsCount = 0
 foreach ($policyName in $dnsPresentRemovals) {
+    $reportStatus = 'Would remove'
     if (-not $applyChanges) {
         Write-DryRun "Would remove $policyName so Brave settings control it again."
-        continue
     }
-
-    if ($PSCmdlet.ShouldProcess($policyTarget.Path, "Remove DNS policy $policyName")) {
+    elseif ($PSCmdlet.ShouldProcess($policyTarget.Path, "Remove DNS policy $policyName")) {
         Remove-PolicyValue -Target $policyTarget -Name $policyName
         $removedDnsCount++
         Write-Step "Removed $policyName."
+        $reportStatus = 'Removed'
+    }
+    else {
+        $reportStatus = 'Skipped'
+    }
+    if ($reportRequested) {
+        [void]$reportRows.Add([pscustomobject]@{ Kind = 'Removal'; Name = $policyName; Feature = 'DNS over HTTPS'; Reason = 'Removed so Brave settings control DNS again.'; Before = 'Set'; NewValue = ''; Status = $reportStatus })
     }
 }
 
@@ -462,6 +504,58 @@ if (-not $applyChanges) {
 else {
     Write-Step "Done. Set $appliedPolicyCount of $($policyNames.Count) policy value(s).$obsoleteDoneSummary Restart Brave, then open brave://policy to check the applied policies."
     if ($null -ne $backupPath) {
-        Write-Step (Get-UndoHint -BackupPath $backupPath -Target $policyTarget -UserSid $UserSid -PolicyPathUsed:(-not [string]::IsNullOrWhiteSpace($PolicyPath)) -ProfileRoot $ProfileRoot)
+        $undoHint = Get-UndoHint -BackupPath $backupPath -Target $policyTarget -UserSid $UserSid -PolicyPathUsed:(-not [string]::IsNullOrWhiteSpace($PolicyPath)) -ProfileRoot $ProfileRoot
+        Write-Step $undoHint
+    }
+}
+
+if ($reportRequested) {
+    $reportMode = if ($applyChanges) { 'Apply' } elseif ($isWhatIf) { 'WhatIf' } else { 'DryRun' }
+    $undoCommand = ''
+    $undoText = ''
+    if ($applyChanges -and $null -ne $backupPath) {
+        $undoPrefix = 'To undo this run, rerun BraveDebloater with: '
+        if ($undoHint.StartsWith($undoPrefix)) {
+            $commandPrefix = if ([System.IO.Path]::DirectorySeparatorChar -eq '\') { '.\' } else { './' }
+            $entrypoint = if ($env:BRAVEDEBLOATER_LAUNCHER -eq '1') { "$($commandPrefix)BraveDebloat.exe" } else { "$($commandPrefix)Invoke-BraveDebloat.ps1" }
+            $undoCommand = "$entrypoint $($undoHint.Substring($undoPrefix.Length))"
+        }
+        else {
+            $undoText = $undoHint
+        }
+    }
+    $reportDetails = [ordered]@{
+        'Preset' = if ($onlyFeatureMode) { '(none - OnlyFeature mode)' } else { $Preset }
+        'Platform' = $platformName
+        'Channel' = $Channel
+        'Scope' = $Scope
+        'Policy target' = $policyTarget.Path
+        'Shield baseline' = if ($LockShields) { 'Locked on by policy' } else { 'Not locked' }
+        'DNS over HTTPS' = if ($null -ne $dnsPlan) { $dnsPlan.Summary } else { 'Not managed' }
+        'Features' = if ($customFeatureRequested) { $selectedFeatureIds -join ', ' } else { 'Preset default' }
+        'Profile preferences' = if ($IncludeProfilePreferences) { "Included ($ProfileRoot). See the console output for each file." } else { 'Not included' }
+        'Backup' = if ($null -ne $backupPath) { $backupPath } elseif ($applyChanges) { 'None (-NoBackup)' } else { 'Written on -Apply' }
+    }
+    $report = [pscustomobject]@{
+        Mode = $reportMode; ToolVersion = $ToolVersion; GeneratedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')
+        LogoDataUri = (Get-RunReportLogoDataUri -ProjectRoot $ProjectRoot); Details = $reportDetails; Rows = $reportRows.ToArray()
+        UndoCommand = $undoCommand; UndoText = $undoText
+    }
+    if ($isWhatIf -and -not $PSCmdlet.ShouldProcess($ReportPath, 'Write HTML report')) {
+        Write-Step 'Report skipped. No report file was written.'
+    }
+    else {
+        try {
+            Set-TextFileContent -Path $ReportPath -Content (ConvertTo-RunReportHtml -Report $report)
+            Write-Step "Report written to $ReportPath. Open it in a browser to review this run."
+        }
+        catch {
+            if ($applyChanges) {
+                Write-Warning "The changes above were made, but the report could not be written to '$ReportPath': $($_.Exception.Message)"
+            }
+            else {
+                throw "Could not write the report to '$ReportPath': $($_.Exception.Message) No policy, backup, or profile files were changed."
+            }
+        }
     }
 }

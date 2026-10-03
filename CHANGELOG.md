@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `-ReportPath <file.html>` saves a self-contained HTML report of a dry run or `-Apply` run: each policy's current and new value, run details, and the exact undo command with a Copy button.
+- A weekly workflow compares Brave's latest policy templates with `config/policy-template-snapshot.json` and opens a pull request listing new, removed, and deprecated policies.
+- Policy template version recorded as 155.1.99.2.
+
 ## 0.7.0 - 2026-10-03
 
 - Apply now stops before any write when a current policy value (for example the string `"true"` for a boolean policy, `null`, or an array in Linux JSON) could not be restored from the backup it would create. Previously the value was overwritten and the printed undo command was rejected.

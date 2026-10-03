@@ -92,6 +92,49 @@ function Test-PolicyTemplateVersionUpdater {
     }
 }
 
+function Test-PolicyTemplateComparer {
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('BraveDebloaterTemplateCompare-{0}' -f [guid]::NewGuid().ToString('N'))
+    try {
+        $zipRoot = Join-Path $tempRoot 'zip'
+        New-Item -ItemType Directory -Path (Join-Path $zipRoot 'windows/admx') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $zipRoot 'VERSION') -Value "MAJOR=2`nMINOR=0`nBUILD=0`nPATCH=1" -Encoding UTF8
+        $admx = '<policyDefinitions><policies>' +
+            '<policy name="Kept"><parentCategory ref="Brave"/></policy>' +
+            '<policy name="Kept_recommended"><parentCategory ref="Brave"/></policy>' +
+            '<policy name="BrandNew"><parentCategory ref="Brave"/></policy>' +
+            '<policy name="BraveRewardsDisabled"><parentCategory ref="DeprecatedPolicies"/></policy>' +
+            '</policies></policyDefinitions>'
+        Set-Content -LiteralPath (Join-Path $zipRoot 'windows/admx/brave.admx') -Value $admx -Encoding UTF8
+        $zipPath = Join-Path $tempRoot 'template.zip'
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($zipRoot, $zipPath)
+
+        $snapshotPath = Join-Path $tempRoot 'snapshot.json'
+        Set-Content -LiteralPath $snapshotPath -Value '{"templateVersion":"1.0.0.0","policies":["Kept","Gone","BraveRewardsDisabled"],"deprecatedPolicies":[]}' -Encoding UTF8
+        $summaryPath = Join-Path $tempRoot 'summary.md'
+        & (Join-Path $root 'scripts/Compare-PolicyTemplates.ps1') -TemplateZipPath $zipPath -SnapshotPath $snapshotPath -SummaryPath $summaryPath -Update *> $null
+
+        $summary = [System.IO.File]::ReadAllText($summaryPath)
+        foreach ($expected in @('1.0.0.0 -> 2.0.0.1', '### New policies (1)', '- `BrandNew`', '### Removed policies (1)', '- `Gone`', '### Newly deprecated policies (1)', '- `BraveRewardsDisabled` (managed by BraveDebloater)', '**Action needed:**')) {
+            if (-not $summary.Contains($expected)) {
+                throw "Compare-PolicyTemplates.ps1 summary is missing '$expected'."
+            }
+        }
+        if ($summary.Contains('Kept_recommended')) {
+            throw 'Compare-PolicyTemplates.ps1 listed a _recommended duplicate policy.'
+        }
+        $updated = Get-Content -LiteralPath $snapshotPath -Raw | ConvertFrom-Json
+        if ([string]$updated.templateVersion -ne '2.0.0.1' -or (@($updated.policies) -join ',') -ne 'BrandNew,Kept' -or (@($updated.deprecatedPolicies) -join ',') -ne 'BraveRewardsDisabled') {
+            throw 'Compare-PolicyTemplates.ps1 -Update did not record the new snapshot.'
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
+    }
+}
+
 if (-not (Test-Path -LiteralPath $manifestPath)) {
     throw "Missing manifest: $manifestPath"
 }
@@ -294,5 +337,6 @@ foreach ($scriptFile in $scriptFiles) {
 }
 
 Test-PolicyTemplateVersionUpdater
+Test-PolicyTemplateComparer
 
 Write-Host 'Policy manifest and PowerShell syntax checks passed.'

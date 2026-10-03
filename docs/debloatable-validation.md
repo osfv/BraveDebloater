@@ -11,7 +11,7 @@ Official sources used for this pass:
 
 Downloaded template evidence:
 
-- Template version: `153.1.97.22`
+- Template version: `155.1.99.2`
 - Archive timestamp: September 10, 2026
 - Checked files: `VERSION` and `windows/admx/brave.admx`
 
@@ -19,7 +19,7 @@ Targeted Reddit, Brave Community, and GitHub searches did not produce a newer or
 
 ## What Changed
 
-The manifest version in `config/policies.json` changed from `153.1.96.44` to `153.1.97.22`. No manifest policy was added, removed, or retyped in that template update; every active policy still exists in the ADMX with the same boolean or enum shape.
+The manifest version in `config/policies.json` changed from `153.1.96.44` to `155.1.99.2`. No manifest policy was added, removed, or retyped in that template update; every active policy still exists in the ADMX with the same boolean or enum shape.
 
 These official-template policies were added in the `153.1.96.44` pass because they match BraveDebloater's scope:
 
