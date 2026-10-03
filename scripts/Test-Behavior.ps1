@@ -1225,10 +1225,19 @@ try {
     Assert-TextContains -Text $dnsCommaOutput -Expected "Would set DnsOverHttpsTemplates = $dnsResolver $dnsSecondResolver" -Context 'comma-separated DNS templates'
     $dnsTemplatedOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates "https://dns.google/dns-query{?dns},$dnsSecondResolver" *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $dnsTemplatedOutput -Expected "Would set DnsOverHttpsTemplates = https://dns.google/dns-query{?dns} $dnsSecondResolver" -Context 'comma-separated RFC 8484 DNS templates'
-    # A comma inside a query string belongs to that one template.
-    $dnsEmbeddedTemplate = 'https://dns.example/dns-query?upstreams=https://one.example,https://two.example'
-    $dnsEmbeddedOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates $dnsEmbeddedTemplate *>&1 | Out-String -Width 4096)
-    Assert-TextContains -Text $dnsEmbeddedOutput -Expected "Would set DnsOverHttpsTemplates = $dnsEmbeddedTemplate" -Context 'DNS template with an embedded URL list'
+    # After a query string, ",https://" could be part of the URL or a second resolver, so it is rejected, not guessed.
+    foreach ($dnsAmbiguousTemplate in @('https://dns.example/dns-query?upstreams=https://one.example,https://two.example', "https://resolver.example/dns-query?token=x,$dnsSecondResolver")) {
+        $dnsAmbiguousRejected = $false
+        try {
+            & $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates $dnsAmbiguousTemplate *>&1 | Out-Null
+        }
+        catch {
+            $dnsAmbiguousRejected = $_.Exception.Message -like '*comma before https://*'
+        }
+        if (-not $dnsAmbiguousRejected) {
+            throw "Ambiguous DNS template $dnsAmbiguousTemplate was not rejected."
+        }
+    }
 
     $dnsTemplateVariantOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates 'https://dns.google/dns-query{?dns}' *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $dnsTemplateVariantOutput -Expected 'Would set DnsOverHttpsTemplates = https://dns.google/dns-query{?dns}' -Context 'DNS template with URI variable'

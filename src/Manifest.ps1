@@ -291,13 +291,17 @@ function Resolve-DnsControlPlan {
     }
 
     # `powershell -File` and BraveDebloat.exe hand over "-DnsOverHttpsTemplates https://a,https://b" as one
-    # string, so a comma that starts another https:// template separates entries like whitespace does. A comma after
-    # a query `?` (outside an RFC 8484 `{?dns}` variable) stays, so ?upstreams=https://a,https://b is one template.
+    # string, so a comma that starts another https:// template separates entries like whitespace does. After a query
+    # `?` (outside an RFC 8484 `{?dns}` variable) such a comma is ambiguous (?token=x,https://b vs
+    # ?upstreams=https://a,https://b), so it is rejected instead of guessed.
     $cleanTemplates = New-Object System.Collections.Generic.List[string]
     foreach ($template in @($Templates)) {
         foreach ($part in ([string]$template -split '\s+|(?<!\?[^\s{}]*),(?=\s*https://)')) {
             if ([string]::IsNullOrWhiteSpace($part)) {
                 continue
+            }
+            if ($part -match ',\s*https://') {
+                throw "DNS-over-HTTPS template '$part' has a comma before https:// after its query string, so it is unclear whether that starts a second resolver. Separate resolvers with spaces, or write a comma that belongs to the URL as %2C."
             }
             if (-not (Test-DnsOverHttpsTemplate -Template $part)) {
                 throw "DNS-over-HTTPS template '$part' is not an https:// URI with a host. Use the resolver's DoH URL, for example https://dns.quad9.net/dns-query."
