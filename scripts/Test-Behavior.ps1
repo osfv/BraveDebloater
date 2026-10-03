@@ -1522,13 +1522,13 @@ try {
     [System.IO.File]::WriteAllText($reportPolicyPath, '{"BraveRewardsDisabled": true}', $utf8NoBom)
     $reportBackupDirectory = Join-Path $reportRoot 'backups'
     $dryRunReportPath = Join-Path $reportRoot 'dry-run.html'
-    $dryRunReportOutput = (& $scriptPath -Platform Linux -OnlyFeature Rewards,Wallet -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $dryRunReportPath *>&1 | Out-String -Width 4096)
+    $dryRunReportOutput = (& $scriptPath -Platform Linux -OnlyFeature Rewards,Wallet -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $dryRunReportPath -NoOpenReport *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $dryRunReportOutput -Expected 'Report written to' -Context '-ReportPath dry-run output'
     $dryRunReport = [System.IO.File]::ReadAllText($dryRunReportPath)
     Assert-TextContains -Text $dryRunReport -Expected 'Dry run' -Context 'dry-run report'
     Assert-TextContains -Text $dryRunReport -Expected 'data:image/png;base64,' -Context 'dry-run report logo'
     Assert-TextContains -Text $dryRunReport -Expected '<code>BraveWalletDisabled</code>' -Context 'dry-run report'
-    Assert-TextContains -Text $dryRunReport -Expected 'Already set' -Context 'dry-run report'
+    Assert-TextContains -Text $dryRunReport -Expected '1 already set' -Context 'dry-run report'
     Assert-TextContains -Text $dryRunReport -Expected 'Report &amp; Run' -Context 'dry-run report path escaping'
     Assert-TextDoesNotContain -Text $dryRunReport -Unexpected 'Report & Run' -Context 'dry-run report path escaping'
     if ([System.IO.File]::ReadAllText($reportPolicyPath) -ne '{"BraveRewardsDisabled": true}') {
@@ -1539,18 +1539,18 @@ try {
     }
 
     $whatIfReportPath = Join-Path $reportRoot 'whatif.html'
-    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $whatIfReportPath -Apply -WhatIf *>&1 | Out-Null
+    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $whatIfReportPath -NoOpenReport -Apply -WhatIf *>&1 | Out-Null
     if (Test-Path -LiteralPath $whatIfReportPath) {
         throw '-ReportPath wrote a report under -WhatIf.'
     }
 
     $applyReportPath = Join-Path $reportRoot 'applied.html'
-    & $scriptPath -Platform Linux -OnlyFeature Rewards,Wallet -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $applyReportPath -Apply -Confirm:$false *>&1 | Out-Null
+    & $scriptPath -Platform Linux -OnlyFeature Rewards,Wallet -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $applyReportPath -NoOpenReport -Apply -Confirm:$false *>&1 | Out-Null
     $applyReport = [System.IO.File]::ReadAllText($applyReportPath)
     Assert-TextContains -Text $applyReport -Expected 'Applied' -Context 'apply report'
     Assert-TextContains -Text $applyReport -Expected '-UndoFromBackup' -Context 'apply report undo command'
     Assert-TextContains -Text $applyReport -Expected 'Invoke-BraveDebloat.ps1' -Context 'apply report undo command'
-    Assert-TextContains -Text $applyReport -Expected '>Set<' -Context 'apply report status'
+    Assert-TextContains -Text $applyReport -Expected 'change was made' -Context 'apply report status'
 
     foreach ($badReportCommand in @(
             { & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -ReportPath (Join-Path $reportRoot 'report.txt') | Out-Null },
@@ -1567,13 +1567,14 @@ try {
         . (Join-Path $root 'src/Reports.ps1')
         $html = ConvertTo-RunReportHtml -Report ([pscustomobject]@{
                 Mode = 'Apply'; ToolVersion = '0.0.0'; GeneratedAt = 'now'; LogoDataUri = $null; Details = [ordered]@{ 'Target' = '<b>x</b>' }
-                Rows = @([pscustomobject]@{ Kind = 'Policy'; Name = '<script>alert(1)</script>'; Feature = ''; Reason = '"quoted"'; Before = 'Not set'; NewValue = '1'; Status = 'Set' })
+                Rows = @([pscustomobject]@{ Kind = 'Policy'; Name = '<script>alert(1)</script>'; Feature = ''; Reason = '"quoted"'; Before = '<i>old</i>'; NewValue = '1'; Status = 'Set' })
                 UndoCommand = ".\Invoke-BraveDebloat.ps1 -UndoFromBackup 'C:\a&b\x.json' -Apply"; UndoText = ''
             })
         Assert-TextDoesNotContain -Text $html -Unexpected '<script>alert(1)</script>' -Context 'report escaping'
         Assert-TextDoesNotContain -Text $html -Unexpected '<b>x</b>' -Context 'report escaping'
         Assert-TextContains -Text $html -Expected '&lt;script&gt;alert(1)&lt;/script&gt;' -Context 'report escaping'
         Assert-TextContains -Text $html -Expected 'C:\a&amp;b\x.json' -Context 'report undo escaping'
+        Assert-TextDoesNotContain -Text $html -Unexpected '<i>old</i>' -Context 'report value escaping'
     }
     Test-RunReportEscaping
 

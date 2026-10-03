@@ -237,7 +237,7 @@ Save an HTML report of a dry run or an applied run. It lists every policy with i
 .\Invoke-BraveDebloat.ps1 -Preset Extreme -Apply -ReportPath .\brave-report.html
 ```
 
-The report is one self-contained file, so you can open it offline or send it to someone. It is not written under `-WhatIf`.
+The report is one self-contained file, so you can open it offline or send it to someone. It opens in your browser when the run finishes (add `-NoOpenReport` to skip that) and is not written under `-WhatIf`.
 
 Exports also honor `-WhatIf`: add it to an `-ExportPolicyPath` command to preview without creating or overwriting the export file. Use one command mode at a time; combining diagnostics, policy listings, exports, restores, or backup maintenance now stops with a clear error. `-ListBackups` can still be combined with backup retention options.
 

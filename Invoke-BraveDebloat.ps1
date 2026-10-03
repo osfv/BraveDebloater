@@ -45,6 +45,8 @@ param(
 
     [string]$ReportPath,
 
+    [switch]$NoOpenReport,
+
     [string]$BackupDirectory,
 
     [string]$UndoFromBackup,
@@ -547,7 +549,12 @@ if ($reportRequested) {
     else {
         try {
             Set-TextFileContent -Path $ReportPath -Content (ConvertTo-RunReportHtml -Report $report)
-            Write-Step "Report written to $ReportPath. Open it in a browser to review this run."
+            if (-not $NoOpenReport -and (Open-RunReport -Path $ReportPath)) {
+                Write-Step "Report written to $ReportPath and opened in your browser."
+            }
+            else {
+                Write-Step "Report written to $ReportPath. Open it in a browser to review this run."
+            }
         }
         catch {
             if ($applyChanges) {

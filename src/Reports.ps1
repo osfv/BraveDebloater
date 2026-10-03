@@ -298,18 +298,29 @@ function ConvertTo-RunReportHtml {
     )
 
     $e = { param($Text) [System.Net.WebUtility]::HtmlEncode([string]$Text) }
+    $rows = @($Report.Rows)
+    $changes = @($rows | Where-Object { $_.Status -in @('Would set', 'Set', 'Would remove', 'Removed') })
+    $already = @($rows | Where-Object { $_.Status -eq 'Already set' })
+    $skipped = @($rows | Where-Object { $_.Status -eq 'Skipped' })
+    $applied = $Report.Mode -eq 'Apply'
 
-    switch ($Report.Mode) {
-        'Apply' { $modeLabel = 'Applied'; $modeClass = 'applied'; $headline = 'These changes were made.' }
-        'WhatIf' { $modeLabel = 'WhatIf'; $modeClass = 'preview'; $headline = 'Preview only. Nothing was changed.' }
-        default { $modeLabel = 'Dry run'; $modeClass = 'preview'; $headline = 'Preview only. Nothing was changed. Add -Apply to make these changes.' }
+    $modeLabel = switch ($Report.Mode) { 'Apply' { 'Applied' } 'WhatIf' { 'WhatIf preview' } default { 'Dry run' } }
+    $verb = if (-not $applied) { 'would be made' } elseif ($changes.Count -eq 1) { 'was made' } else { 'were made' }
+    $lead = "$($changes.Count) change$(if ($changes.Count -ne 1) { 's' }) $verb."
+    if ($already.Count -gt 0) {
+        $lead += " $($already.Count) already set."
+    }
+    if (-not $applied) {
+        $lead += ' Nothing was changed.'
     }
 
-    $rows = @($Report.Rows)
-    $changeCount = @($rows | Where-Object { $_.Status -in @('Would set', 'Set', 'Would remove', 'Removed') }).Count
-    $alreadyCount = @($rows | Where-Object { $_.Status -eq 'Already set' }).Count
-    $skippedCount = @($rows | Where-Object { $_.Status -eq 'Skipped' }).Count
-    $removeCount = @($rows | Where-Object { $_.Status -in @('Would remove', 'Removed') }).Count
+    $renderItem = {
+        param($Row)
+        $label = if ([string]::IsNullOrWhiteSpace($Row.Feature)) { $Row.Name } else { $Row.Feature }
+        $label = $label.Substring(0, 1).ToUpperInvariant() + $label.Substring(1)
+        $value = if ($Row.Kind -eq 'Policy') { "$(& $e $Row.Before) &rarr; $(& $e $Row.NewValue)" } else { 'removed' }
+        "<li><div><b>$(& $e $label)</b><code>$(& $e $Row.Name)</code></div><span>$value</span></li>"
+    }
 
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append(@'
@@ -321,110 +332,105 @@ function ConvertTo-RunReportHtml {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <title>BraveDebloater report</title>
 <style>
-:root{--bg:#0f1115;--panel:#171a21;--line:#262b36;--text:#e8eaf0;--muted:#9aa3b2;--accent:#fb542b;--ok:#3ecf8e;--warn:#f5a623;--rm:#ff6b81}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-.wrap{max-width:1100px;margin:0 auto;padding:32px 24px 48px}
-header{display:flex;align-items:center;gap:18px;margin-bottom:8px}
-header img{width:64px;height:64px;border-radius:14px}
-h1{font-size:24px;margin:0}
-h2{font-size:16px;margin:32px 0 12px}
-.sub{color:var(--muted);margin:2px 0 0}
-.badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;letter-spacing:.02em;vertical-align:middle;margin-left:8px}
-.badge.preview{background:rgba(245,166,35,.15);color:var(--warn)}
-.badge.applied{background:rgba(62,207,142,.15);color:var(--ok)}
-.headline{margin:20px 0;padding:14px 16px;border-left:3px solid var(--accent);background:var(--panel);border-radius:8px}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
-.card b{display:block;font-size:26px}
-.card span{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
-table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
-th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
-th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em;background:#1b1f27}
-tr:last-child td{border-bottom:0}
-.meta td:first-child{color:var(--muted);width:200px}
-code,.mono{font-family:Consolas,"SFMono-Regular",Menlo,monospace;font-size:13px}
-.status{font-weight:600;white-space:nowrap}
-.s-set,.s-would-set{color:var(--accent)}
-.s-already-set{color:var(--ok)}
-.s-skipped{color:var(--muted)}
-.s-removed,.s-would-remove{color:var(--rm)}
-.reason{color:var(--muted)}
-.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-.toolbar input{flex:1;min-width:200px;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 10px}
-.toolbar button,.copy{background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:7px 12px;cursor:pointer}
-.toolbar button.on{border-color:var(--accent);color:var(--accent)}
-.cmd{display:flex;gap:10px;align-items:flex-start;background:#0b0d11;border:1px solid var(--line);border-radius:10px;padding:12px 14px}
-.cmd code{flex:1;white-space:pre-wrap;word-break:break-all}
-.note{color:var(--muted)}
-footer{margin-top:40px;color:var(--muted);font-size:12px}
+body{margin:0;background:#fafafa;color:#1d1d1f;font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:720px;margin:0 auto;padding:48px 24px}
+header{display:flex;align-items:center;gap:14px}
+header img{width:52px;height:52px}
+h1{font-size:22px;margin:0}
+header p{margin:0;color:#6e6e73;font-size:13px}
+.lead{font-size:17px;margin:28px 0 16px}
+h2{font-size:15px;margin:32px 0 8px}
+ul{list-style:none;margin:0;padding:0;background:#fff;border:1px solid #e5e5ea;border-radius:12px}
+li{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 16px;border-top:1px solid #f0f0f3}
+li:first-child{border-top:0}
+li b{display:block;font-weight:500}
+li code{color:#86868b;font-size:12px}
+li span{color:#fb542b;font-family:Consolas,Menlo,monospace;font-size:13px;white-space:nowrap}
+details{margin-top:12px;color:#6e6e73}
+details ul{margin-top:8px}
+details li span{color:#6e6e73}
+summary{cursor:pointer}
+.undo{display:flex;gap:10px;align-items:center;background:#fff;border:1px solid #e5e5ea;border-radius:12px;padding:12px 16px}
+.undo code{flex:1;font-size:13px;word-break:break-all}
+button{border:0;background:#fb542b;color:#fff;border-radius:8px;padding:6px 14px;font:inherit;font-size:13px;cursor:pointer}
+.muted{color:#6e6e73}
+footer{margin-top:40px;color:#86868b;font-size:12px}
 </style>
 </head>
 <body>
-<div class="wrap">
+<main>
 '@)
+    $logo = if ($Report.LogoDataUri) { "<img src=""$($Report.LogoDataUri)"" alt="""">" } else { '' }
+    [void]$sb.Append("<header>$logo<div><h1>BraveDebloater</h1><p>$(& $e $modeLabel) &middot; $(& $e $Report.GeneratedAt)</p></div></header>")
+    [void]$sb.Append("<p class=""lead"">$(& $e $lead)</p>")
 
-    $logo = if ($Report.LogoDataUri) { "<img src=""$($Report.LogoDataUri)"" alt=""BraveDebloater logo"">" } else { '' }
-    [void]$sb.Append("<header>$logo<div><h1>BraveDebloater report<span class=""badge $modeClass"">$(& $e $modeLabel)</span></h1><p class=""sub"">$(& $e $Report.GeneratedAt) &middot; BraveDebloater $(& $e $Report.ToolVersion)</p></div></header>")
-    [void]$sb.Append("<div class=""headline"">$(& $e $headline)</div>")
-
-    $changeLabel = if ($Report.Mode -eq 'Apply') { 'Changed' } else { 'Would change' }
-    [void]$sb.Append('<div class="cards">')
-    [void]$sb.Append("<div class=""card""><span>Policies selected</span><b>$(@($rows | Where-Object { $_.Kind -eq 'Policy' }).Count)</b></div>")
-    [void]$sb.Append("<div class=""card""><span>$changeLabel</span><b>$changeCount</b></div>")
-    [void]$sb.Append("<div class=""card""><span>Already set</span><b>$alreadyCount</b></div>")
-    [void]$sb.Append("<div class=""card""><span>Removals</span><b>$removeCount</b></div>")
-    if ($skippedCount -gt 0) {
-        [void]$sb.Append("<div class=""card""><span>Skipped</span><b>$skippedCount</b></div>")
+    if ($changes.Count -gt 0) {
+        [void]$sb.Append('<ul>')
+        foreach ($row in $changes) { [void]$sb.Append((& $renderItem $row)) }
+        [void]$sb.Append('</ul>')
     }
-    [void]$sb.Append('</div>')
-
-    [void]$sb.Append('<h2>Run details</h2><table class="meta">')
-    foreach ($entry in $Report.Details.GetEnumerator()) {
-        [void]$sb.Append("<tr><td>$(& $e $entry.Key)</td><td class=""mono"">$(& $e $entry.Value)</td></tr>")
+    foreach ($group in @(@{ Title = 'already set'; Items = $already }, @{ Title = 'skipped'; Items = $skipped })) {
+        if (@($group.Items).Count -gt 0) {
+            [void]$sb.Append("<details><summary>$(@($group.Items).Count) $($group.Title)</summary><ul>")
+            foreach ($row in @($group.Items)) { [void]$sb.Append((& $renderItem $row)) }
+            [void]$sb.Append('</ul></details>')
+        }
     }
-    [void]$sb.Append('</table>')
-
-    [void]$sb.Append('<h2>Policies</h2>')
-    [void]$sb.Append('<div class="toolbar"><input id="q" type="search" placeholder="Filter by policy, feature, or reason" aria-label="Filter policies"><button type="button" data-f="all" class="on">All</button><button type="button" data-f="change">Changes</button><button type="button" data-f="already">Already set</button></div>')
-    [void]$sb.Append('<table id="policies"><thead><tr><th>Policy</th><th>Feature</th><th>Before</th><th>New value</th><th>Status</th></tr></thead><tbody>')
-    foreach ($row in $rows) {
-        $statusClass = 's-' + ($row.Status.ToLowerInvariant() -replace '[^a-z]+', '-')
-        $group = if ($row.Status -eq 'Already set') { 'already' } elseif ($row.Status -eq 'Skipped') { 'skipped' } else { 'change' }
-        $newValue = if ($row.Kind -eq 'Policy') { $row.NewValue } else { '(removed)' }
-        [void]$sb.Append("<tr data-g=""$group""><td><code>$(& $e $row.Name)</code><div class=""reason"">$(& $e $row.Reason)</div></td><td>$(& $e $row.Feature)</td><td class=""mono"">$(& $e $row.Before)</td><td class=""mono"">$(& $e $newValue)</td><td class=""status $statusClass"">$(& $e $row.Status)</td></tr>")
-    }
-    [void]$sb.Append('</tbody></table>')
 
     [void]$sb.Append('<h2>Undo</h2>')
     if (-not [string]::IsNullOrWhiteSpace($Report.UndoCommand)) {
-        [void]$sb.Append('<p class="note">Run this from the BraveDebloater folder to put every value above back the way it was, then restart Brave.</p>')
-        [void]$sb.Append("<div class=""cmd""><code id=""undo"">$(& $e $Report.UndoCommand)</code><button type=""button"" class=""copy"" data-copy=""undo"">Copy</button></div>")
+        [void]$sb.Append("<div class=""undo""><code id=""undo"">$(& $e $Report.UndoCommand)</code><button type=""button"" id=""copy"">Copy</button></div>")
+        [void]$sb.Append('<p class="muted">Run it from the BraveDebloater folder, then restart Brave.</p>')
     }
     elseif (-not [string]::IsNullOrWhiteSpace($Report.UndoText)) {
-        [void]$sb.Append("<p class=""note"">$(& $e $Report.UndoText)</p>")
+        [void]$sb.Append("<p class=""muted"">$(& $e $Report.UndoText)</p>")
     }
-    elseif ($Report.Mode -eq 'Apply') {
-        [void]$sb.Append('<p class="note">No backup was written for this run (-NoBackup), so there is no undo command. Remove the policies above by hand to undo it.</p>')
+    elseif ($applied) {
+        [void]$sb.Append('<p class="muted">No backup was written (-NoBackup), so there is no undo command.</p>')
     }
     else {
-        [void]$sb.Append('<p class="note">Nothing to undo yet. When you rerun with -Apply, a backup is written first and the report shows the exact undo command. You can also list earlier backups with -ListBackups and restore one with -UndoFromBackup &lt;file&gt; -Apply.</p>')
+        [void]$sb.Append('<p class="muted">Nothing to undo. Run with -Apply and the report will include the undo command.</p>')
     }
 
-    [void]$sb.Append("<footer>Generated by BraveDebloater $(& $e $Report.ToolVersion). Shields, Safe Browsing, and Brave updates are never weakened by this tool. After applying, open brave://policy to confirm.</footer>")
+    $footer = @($Report.Details.GetEnumerator() | ForEach-Object { "$(& $e $_.Key): $(& $e $_.Value)" }) -join ' &middot; '
+    [void]$sb.Append("<footer>$footer<br>BraveDebloater $(& $e $Report.ToolVersion)</footer>")
     [void]$sb.Append(@'
-</div>
+</main>
 <script>
-(function(){
-  var q=document.getElementById('q'),f='all',rows=[].slice.call(document.querySelectorAll('#policies tbody tr'));
-  function apply(){var t=q.value.toLowerCase();rows.forEach(function(r){var ok=(f==='all'||r.getAttribute('data-g')===f)&&r.textContent.toLowerCase().indexOf(t)>=0;r.style.display=ok?'':'none';});}
-  q.addEventListener('input',apply);
-  [].forEach.call(document.querySelectorAll('.toolbar button'),function(b){b.addEventListener('click',function(){f=b.getAttribute('data-f');[].forEach.call(document.querySelectorAll('.toolbar button'),function(x){x.className=x===b?'on':'';});apply();});});
-  [].forEach.call(document.querySelectorAll('[data-copy]'),function(b){b.addEventListener('click',function(){var t=document.getElementById(b.getAttribute('data-copy')).textContent;function done(){b.textContent='Copied';}function fallback(){var r=document.createRange();r.selectNodeContents(document.getElementById(b.getAttribute('data-copy')));var sel=window.getSelection();sel.removeAllRanges();sel.addRange(r);try{if(document.execCommand('copy')){done();}}catch(e){}}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done,fallback);}else{fallback();}});});
-})();
+var b=document.getElementById('copy');
+if(b){b.onclick=function(){var c=document.getElementById('undo');function done(){b.textContent='Copied';}
+function fallback(){var r=document.createRange();r.selectNodeContents(c);var s=getSelection();s.removeAllRanges();s.addRange(r);try{if(document.execCommand('copy')){done();}}catch(x){}}
+if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(c.textContent).then(done,fallback);}else{fallback();}};}
 </script>
 </body>
 </html>
 '@)
     return $sb.ToString()
+}
+
+function Open-RunReport {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if ($env:CI -or -not [Environment]::UserInteractive) {
+        return $false
+    }
+    $fullPath = Get-FullFileSystemPath -Path $Path
+    try {
+        if ([System.IO.Path]::DirectorySeparatorChar -eq '\') {
+            Invoke-Item -LiteralPath $fullPath
+        }
+        elseif (Test-Path -LiteralPath '/usr/bin/open') {
+            & /usr/bin/open $fullPath
+        }
+        elseif (($env:DISPLAY -or $env:WAYLAND_DISPLAY) -and (Get-Command xdg-open -ErrorAction SilentlyContinue)) {
+            Start-Process -FilePath 'xdg-open' -ArgumentList @($fullPath) | Out-Null
+        }
+        else {
+            return $false
+        }
+        return $true
+    }
+    catch {
+        return $false
+    }
 }
