@@ -43,9 +43,12 @@ if ([string]::IsNullOrWhiteSpace($CompilerPath)) {
     }
 }
 
-$outputFull = [System.IO.Path]::GetFullPath((Join-Path (Get-Location).ProviderPath $OutputPath))
+# Resolve rooted paths directly: joining 'C:\...' onto the current folder is rejected by .NET Framework (PowerShell 5.1).
 if ([System.IO.Path]::IsPathRooted($OutputPath)) {
     $outputFull = [System.IO.Path]::GetFullPath($OutputPath)
+}
+else {
+    $outputFull = [System.IO.Path]::GetFullPath((Join-Path (Get-Location).ProviderPath $OutputPath))
 }
 $outputDirectory = Split-Path -Parent $outputFull
 if (-not (Test-Path -LiteralPath $outputDirectory)) {

@@ -737,6 +737,12 @@ try {
         throw 'Linux policy apply wrote a UTF-8 BOM to the managed policy file.'
     }
     $utf8Backup = @(Get-ChildItem -LiteralPath $utf8BackupDirectory -Filter 'BraveDebloater-*.json')[0].FullName
+    # Profile copies are named after their path under the profile root, so a deep backup folder does not
+    # push the copy past the 260-character limit of Windows PowerShell 5.1 file APIs.
+    $utf8ProfileCopyName = Split-Path -Leaf ([string]@((Get-Content -LiteralPath $utf8Backup -Raw | ConvertFrom-Json).profileFiles)[0].backupPath)
+    if ($utf8ProfileCopyName -ne 'Default_Preferences.bak') {
+        throw "Profile backup copy should be named after its path under the profile root, got '$utf8ProfileCopyName'."
+    }
     $utf8RestoreOutput = (& $scriptPath -UndoFromBackup $utf8Backup -PolicyPath $utf8PolicyPath -ProfileRoot $utf8ProfileRoot -Apply *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $utf8RestoreOutput -Expected 'Restored profile file' -Context 'UTF-8 profile restore output'
     $restoredJson = [System.IO.File]::ReadAllText($utf8Preferences, $utf8NoBom) | ConvertFrom-Json
@@ -1253,6 +1259,21 @@ try {
     Assert-TextContains -Text $installOutput -Expected 'Nothing is written until you add -Apply.' -Context 'install.ps1 first install output'
     if (-not (Test-Path -LiteralPath (Join-Path $installDestination 'src/Release-9.9.9.ps1'))) {
         throw 'install.ps1 did not extract the release tree into the destination.'
+    }
+
+    # The printed Set-Location line must work when pasted, even for folders with an apostrophe or brackets.
+    $quotedInstallDestination = Join-Path $installRoot "it's [quoted] dir"
+    $quotedInstallOutput = (& $installScriptPath -ArchivePath $firstArchive -Destination $quotedInstallDestination *>&1 | Out-String -Width 4096)
+    $printedSetLocation = [regex]::Match($quotedInstallOutput, '(?m)^\s*(Set-Location .+?)\s*$').Groups[1].Value
+    Push-Location -LiteralPath $tempRoot
+    try {
+        Invoke-Expression $printedSetLocation
+        if ((Get-Location).ProviderPath -ne $quotedInstallDestination) {
+            throw "install.ps1 printed '$printedSetLocation', which went to '$((Get-Location).ProviderPath)' instead of $quotedInstallDestination."
+        }
+    }
+    finally {
+        Pop-Location
     }
 
     New-Item -ItemType Directory -Path (Join-Path $installDestination 'backups') -Force | Out-Null

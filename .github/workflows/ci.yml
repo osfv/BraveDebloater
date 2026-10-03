@@ -93,3 +93,9 @@ jobs:
           ./scripts/Test-PolicyManifest.ps1
           ./scripts/Test-Behavior.ps1
           ./Invoke-BraveDebloat.ps1 -Preset Extreme -LockShields
+
+      - name: Build and test launcher under Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          ./scripts/Build-Launcher.ps1 -Version 0.0.0 -OutputPath "$env:RUNNER_TEMP\launcher\BraveDebloat.exe"
+          ./scripts/Test-Launcher.ps1 -LauncherPath "$env:RUNNER_TEMP\launcher\BraveDebloat.exe"
