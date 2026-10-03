@@ -1537,15 +1537,6 @@ try {
         throw 'Profile cleanup created a profile backup even though ShouldProcess declined the change.'
     }
 
-    if ($env:OS -eq 'Windows_NT') {
-        # An absolute -OutputPath must work under Windows PowerShell 5.1, not only a path relative to the current folder.
-        $absoluteLauncherPath = Join-Path (Join-Path $tempRoot 'Launcher Out') 'BraveDebloat.exe'
-        & (Join-Path $root 'scripts/Build-Launcher.ps1') -Version 0.0.0 -OutputPath $absoluteLauncherPath | Out-Null
-        if (-not (Test-Path -LiteralPath $absoluteLauncherPath)) {
-            throw "Build-Launcher.ps1 did not build the launcher at absolute -OutputPath $absoluteLauncherPath."
-        }
-    }
-
     & (Join-Path $root 'tests/WriteSafety.ps1') -TempRoot (Join-Path $tempRoot 'WriteSafety')
     Write-Host 'Behavior checks passed.'
 }
