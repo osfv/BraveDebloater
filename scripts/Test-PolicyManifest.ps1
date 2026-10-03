@@ -95,19 +95,26 @@ function Test-PolicyTemplateVersionUpdater {
 function Test-PolicyTemplateComparer {
     $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('BraveDebloaterTemplateCompare-{0}' -f [guid]::NewGuid().ToString('N'))
     try {
-        $zipRoot = Join-Path $tempRoot 'zip'
-        New-Item -ItemType Directory -Path (Join-Path $zipRoot 'windows/admx') -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $zipRoot 'VERSION') -Value "MAJOR=2`nMINOR=0`nBUILD=0`nPATCH=1" -Encoding UTF8
+        New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
         $admx = '<policyDefinitions><policies>' +
             '<policy name="Kept"><parentCategory ref="Brave"/></policy>' +
             '<policy name="Kept_recommended"><parentCategory ref="Brave"/></policy>' +
             '<policy name="BrandNew"><parentCategory ref="Brave"/></policy>' +
             '<policy name="BraveRewardsDisabled"><parentCategory ref="DeprecatedPolicies"/></policy>' +
             '</policies></policyDefinitions>'
-        Set-Content -LiteralPath (Join-Path $zipRoot 'windows/admx/brave.admx') -Value $admx -Encoding UTF8
         $zipPath = Join-Path $tempRoot 'template.zip'
         Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [System.IO.Compression.ZipFile]::CreateFromDirectory($zipRoot, $zipPath)
+        # Windows PowerShell 5.1 CreateFromDirectory writes backslash entry names, so add entries by name.
+        $zip = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($entry in @(@{ Name = 'VERSION'; Text = "MAJOR=2`nMINOR=0`nBUILD=0`nPATCH=1" }, @{ Name = 'windows/admx/brave.admx'; Text = $admx })) {
+                $writer = New-Object System.IO.StreamWriter($zip.CreateEntry($entry.Name).Open())
+                try { $writer.Write($entry.Text) } finally { $writer.Dispose() }
+            }
+        }
+        finally {
+            $zip.Dispose()
+        }
 
         $snapshotPath = Join-Path $tempRoot 'snapshot.json'
         Set-Content -LiteralPath $snapshotPath -Value '{"templateVersion":"1.0.0.0","policies":["Kept","Gone","BraveRewardsDisabled"],"deprecatedPolicies":[]}' -Encoding UTF8
