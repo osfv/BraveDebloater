@@ -737,6 +737,12 @@ try {
         throw 'Linux policy apply wrote a UTF-8 BOM to the managed policy file.'
     }
     $utf8Backup = @(Get-ChildItem -LiteralPath $utf8BackupDirectory -Filter 'BraveDebloater-*.json')[0].FullName
+    # Profile copies are named after their path under the profile root, so a deep backup folder does not
+    # push the copy past the 260-character limit of Windows PowerShell 5.1 file APIs.
+    $utf8ProfileCopyName = Split-Path -Leaf ([string]@((Get-Content -LiteralPath $utf8Backup -Raw | ConvertFrom-Json).profileFiles)[0].backupPath)
+    if ($utf8ProfileCopyName -ne 'Default_Preferences.bak') {
+        throw "Profile backup copy should be named after its path under the profile root, got '$utf8ProfileCopyName'."
+    }
     $utf8RestoreOutput = (& $scriptPath -UndoFromBackup $utf8Backup -PolicyPath $utf8PolicyPath -ProfileRoot $utf8ProfileRoot -Apply *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $utf8RestoreOutput -Expected 'Restored profile file' -Context 'UTF-8 profile restore output'
     $restoredJson = [System.IO.File]::ReadAllText($utf8Preferences, $utf8NoBom) | ConvertFrom-Json
@@ -1255,6 +1261,21 @@ try {
         throw 'install.ps1 did not extract the release tree into the destination.'
     }
 
+    # The printed Set-Location line must work when pasted, even for folders with an apostrophe or brackets.
+    $quotedInstallDestination = Join-Path $installRoot "it's [quoted] dir"
+    $quotedInstallOutput = (& $installScriptPath -ArchivePath $firstArchive -Destination $quotedInstallDestination *>&1 | Out-String -Width 4096)
+    $printedSetLocation = [regex]::Match($quotedInstallOutput, '(?m)^\s*(Set-Location .+?)\s*$').Groups[1].Value
+    Push-Location -LiteralPath $tempRoot
+    try {
+        Invoke-Expression $printedSetLocation
+        if ((Get-Location).ProviderPath -ne $quotedInstallDestination) {
+            throw "install.ps1 printed '$printedSetLocation', which went to '$((Get-Location).ProviderPath)' instead of $quotedInstallDestination."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+
     New-Item -ItemType Directory -Path (Join-Path $installDestination 'backups') -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $installDestination 'backups/keep.json') -Value '{}' -Encoding UTF8
     Set-Content -LiteralPath (Join-Path $installDestination 'notes.txt') -Value 'mine' -Encoding UTF8
@@ -1514,6 +1535,15 @@ try {
     }
     if (@(Get-ChildItem -LiteralPath $tempRoot -Filter 'whatif-backup*').Count -gt 0) {
         throw 'Profile cleanup created a profile backup even though ShouldProcess declined the change.'
+    }
+
+    if ($env:OS -eq 'Windows_NT') {
+        # An absolute -OutputPath must work under Windows PowerShell 5.1, not only a path relative to the current folder.
+        $absoluteLauncherPath = Join-Path (Join-Path $tempRoot 'Launcher Out') 'BraveDebloat.exe'
+        & (Join-Path $root 'scripts/Build-Launcher.ps1') -Version 0.0.0 -OutputPath $absoluteLauncherPath | Out-Null
+        if (-not (Test-Path -LiteralPath $absoluteLauncherPath)) {
+            throw "Build-Launcher.ps1 did not build the launcher at absolute -OutputPath $absoluteLauncherPath."
+        }
     }
 
     & (Join-Path $root 'tests/WriteSafety.ps1') -TempRoot (Join-Path $tempRoot 'WriteSafety')

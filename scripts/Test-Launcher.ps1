@@ -26,7 +26,10 @@ $launcher = Join-Path $root 'BraveDebloat.exe'
 Copy-Item -LiteralPath $LauncherPath -Destination $launcher -Force
 try {
     # The failing run comes first so the step's final $LASTEXITCODE reflects a passing run.
+    # Windows PowerShell 5.1 turns a native command's stderr into an error record, which 'Stop' would make fatal.
+    $ErrorActionPreference = 'Continue'
     & $launcher -Preset NotAPreset *> $null
+    $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -eq 0) {
         throw 'BraveDebloat.exe returned 0 although the script rejected -Preset NotAPreset.'
     }

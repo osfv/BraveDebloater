@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed profile `Preferences` backups failing under Windows PowerShell 5.1 when the backup folder and profile path were long (for example a WinGet install under `%LOCALAPPDATA%`). Backup copies are now named after their path under the profile root.
+- Fixed the installer's "next steps" `Set-Location` hint so it can be pasted into PowerShell when the install folder contains an apostrophe or brackets.
+- Fixed `scripts/Build-Launcher.ps1` failing under Windows PowerShell 5.1 when `-OutputPath` is an absolute path.
+- Fixed `scripts/Test-Launcher.ps1` stopping under Windows PowerShell 5.1 on the launcher's expected error output. CI now builds and tests the launcher under Windows PowerShell 5.1 too.
+
 ## 0.7.0 - 2026-10-03
 
 - Apply now stops before any write when a current policy value (for example the string `"true"` for a boolean policy, `null`, or an array in Linux JSON) could not be restored from the backup it would create. Previously the value was overwritten and the printed undo command was rejected.
