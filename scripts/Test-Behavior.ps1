@@ -1103,6 +1103,25 @@ try {
     Assert-TextContains -Text $doctorKindOutput -Expected 'String' -Context 'Doctor JSON kind output'
     Assert-TextDoesNotContain -Text $doctorKindOutput -Unexpected 'CurrentUser policies:' -Context 'Doctor Linux -PolicyPath output'
 
+    # A quoted launcher hint must not end in a backslash, which would escape the closing double quote.
+    function Get-LauncherQuotedArgument {
+        param([string]$Text)
+
+        . (Join-Path $root 'src/Common.ps1')
+        . (Join-Path $root 'src/Backup.ps1')
+        $env:BRAVEDEBLOATER_LAUNCHER = '1'
+        try {
+            return (ConvertTo-CommandLineArgument -Text $Text)
+        }
+        finally {
+            Remove-Item -LiteralPath Env:BRAVEDEBLOATER_LAUNCHER
+        }
+    }
+    $trailingSlashQuoted = Get-LauncherQuotedArgument -Text 'C:\Users\me\BraveSoftware\Brave-Browser\User Data\'
+    if ($trailingSlashQuoted -ne '"C:\Users\me\BraveSoftware\Brave-Browser\User Data"') {
+        throw "Launcher undo hint quoted a trailing backslash path as $trailingSlashQuoted, which escapes the closing quote."
+    }
+
     # DNS control is opt-in and never part of a preset.
     $defaultDryRun = (& $scriptPath -Platform Linux -PolicyPath (Join-Path $tempRoot 'dns-absent.json') *>&1 | Out-String -Width 4096)
     Assert-TextDoesNotContain -Text $defaultDryRun -Unexpected 'DnsOverHttps' -Context 'default preset dry-run'
@@ -1200,6 +1219,11 @@ try {
         @{ Arguments = @{ DnsOverHttps = 'Secure'; DnsOverHttpsTemplates = 'https:///dns-query' }; Expected = 'is not an https:// URI' },
         @{ Arguments = @{ DnsOverHttps = 'Secure'; DnsOverHttpsTemplates = 'https://' }; Expected = 'is not an https:// URI' }
     )
+    # `powershell -File` and BraveDebloat.exe pass a comma-separated list as one string.
+    $dnsSecondResolver = 'https://cloudflare-dns.com/dns-query'
+    $dnsCommaOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates "$dnsResolver,$dnsSecondResolver" *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsCommaOutput -Expected "Would set DnsOverHttpsTemplates = $dnsResolver $dnsSecondResolver" -Context 'comma-separated DNS templates'
+
     $dnsTemplateVariantOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates 'https://dns.google/dns-query{?dns}' *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $dnsTemplateVariantOutput -Expected 'Would set DnsOverHttpsTemplates = https://dns.google/dns-query{?dns}' -Context 'DNS template with URI variable'
     foreach ($dnsErrorCase in $dnsErrorCases) {
@@ -1272,6 +1296,21 @@ try {
     if (Test-Path -LiteralPath (Join-Path $installDestination 'src/Release-9.9.9.ps1')) {
         throw 'install.ps1 upgrade left a stale file inside a replaced folder.'
     }
+
+    # A folder that only holds backups/ (tool files deleted, backups kept) is reinstalled into, keeping the backups.
+    $backupsOnlyDestination = Join-Path $installRoot 'BackupsOnly'
+    New-Item -ItemType Directory -Path (Join-Path $backupsOnlyDestination 'backups') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $backupsOnlyDestination 'backups/keep.json') -Value '{}' -Encoding UTF8
+    $backupsOnlyOutput = (& $installScriptPath -ArchivePath $firstArchive -Destination $backupsOnlyDestination *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $backupsOnlyOutput -Expected "Installed BraveDebloater 9.9.9 to $backupsOnlyDestination" -Context 'install.ps1 into a backups-only folder'
+    if (-not (Test-Path -LiteralPath (Join-Path $backupsOnlyDestination 'backups/keep.json'))) {
+        throw 'install.ps1 lost backups when reinstalling into a backups-only folder.'
+    }
+
+    # The printed Set-Location line must stay valid PowerShell when the path has an apostrophe (C:\Users\O'Brien).
+    $apostropheDestination = Join-Path $installRoot "O'Brien"
+    $apostropheOutput = (& $installScriptPath -ArchivePath $firstArchive -Destination $apostropheDestination *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $apostropheOutput -Expected ("Set-Location '{0}'" -f $apostropheDestination.Replace("'", "''")) -Context 'install.ps1 next-step command with an apostrophe'
 
     # A failed upgrade must leave the previous install intact. Windows blocks moving a file that is open
     # without FileShare.Delete, which fails the swap after staging (LICENSE is only moved, never read, so

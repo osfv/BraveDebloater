@@ -298,6 +298,12 @@ function ConvertTo-CommandLineArgument {
     if ($Text.IndexOfAny([char[]]'%!$`"') -ge 0) {
         return $null
     }
+    # A trailing backslash would escape the closing quote ("C:\User Data\" reaches the launcher as
+    # 'C:\User Data" ...'), so drop it; the folder is the same without it.
+    $trimmed = $Text.TrimEnd('\')
+    if ($trimmed.Length -gt 0 -and -not $trimmed.EndsWith(':')) {
+        $Text = $trimmed
+    }
     return '"' + $Text + '"'
 }
 

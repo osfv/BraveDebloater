@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `-DnsOverHttpsTemplates https://a,https://b` through `powershell -File` or `BraveDebloat.exe` now sets two resolvers. Previously the comma-joined text was written as one invalid template.
+- The undo command printed through `BraveDebloat.exe` no longer ends a quoted path with a backslash (for example `-ProfileRoot "...\User Data\"`), which escaped the closing quote and broke the pasted command.
+- `install.ps1` installs into a folder that only holds a `backups/` folder instead of refusing it as not empty.
+- `install.ps1` doubles apostrophes in the printed `Set-Location` command, so paths such as `C:\Users\O'Brien\...` can be pasted as is.
+
 ## 0.7.0 - 2026-10-03
 
 - Apply now stops before any write when a current policy value (for example the string `"true"` for a boolean policy, `null`, or an array in Linux JSON) could not be restored from the backup it would create. Previously the value was overwritten and the printed undo command was rejected.

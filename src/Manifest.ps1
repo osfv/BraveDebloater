@@ -290,9 +290,11 @@ function Resolve-DnsControlPlan {
         }
     }
 
+    # `powershell -File` and BraveDebloat.exe hand over "-DnsOverHttpsTemplates https://a,https://b" as one
+    # string, so a comma that starts another https:// template separates entries like whitespace does.
     $cleanTemplates = New-Object System.Collections.Generic.List[string]
     foreach ($template in @($Templates)) {
-        foreach ($part in ([string]$template -split '\s+')) {
+        foreach ($part in ([string]$template -split '\s+|,(?=\s*https://)')) {
             if ([string]::IsNullOrWhiteSpace($part)) {
                 continue
             }

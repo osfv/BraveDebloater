@@ -267,7 +267,8 @@ function Install-BraveDebloater {
                 throw "Destination $Destination is a file. Pass a folder with -Destination."
             }
             $previousVersion = Get-ToolVersionFromFolder -Folder $Destination
-            $existingEntries = @([System.IO.Directory]::GetFileSystemEntries($Destination))
+            # A folder that only holds backups/ (tool files deleted, backups kept) is a valid reinstall target.
+            $existingEntries = @([System.IO.Directory]::GetFileSystemEntries($Destination) | Where-Object { [System.IO.Path]::GetFileName($_) -ne 'backups' })
             if ($existingEntries.Count -gt 0 -and [string]::IsNullOrWhiteSpace($previousVersion)) {
                 throw "Destination $Destination is not empty and does not contain $entrypointName. Pick an empty folder or an existing BraveDebloater folder with -Destination."
             }
@@ -347,7 +348,7 @@ function Install-BraveDebloater {
         $runCommand = if ($isWindowsHost) { ".\$entrypointName" } else { "./$entrypointName" }
         Write-InstallStep ''
         Write-InstallStep 'Next: preview what would change. Nothing is written until you add -Apply.'
-        Write-InstallStep "  Set-Location '$Destination'"
+        Write-InstallStep "  Set-Location '$($Destination.Replace("'", "''"))'"
         Write-InstallStep "  $runCommand"
         if ($isWindowsHost -and @('Restricted', 'AllSigned') -contains [string](Get-ExecutionPolicy)) {
             Write-InstallStep ''
