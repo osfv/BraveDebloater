@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.7.0 - 2026-10-03
+
+- Apply now stops before any write when a current policy value (for example the string `"true"` for a boolean policy, `null`, or an array in Linux JSON) could not be restored from the backup it would create. Previously the value was overwritten and the printed undo command was rejected.
+- Profile preference cleanup skips a setting with a warning when a parent value on its path is `null`, a scalar, or an array, instead of crashing.
+- Profile `Preferences` writes now honor `-Confirm` and `-WhatIf`.
+- Fixed two profile folders whose names normalize to the same backup file name (for example `Profile 1` and `Profile_1`) overwriting each other's `Preferences` backup in one run.
 - Fixed `-PolicyPath` allowing restores outside the Brave registry policy keys when it matched a backup's path.
 - Preserve deeply nested unrelated Linux policy JSON during apply and undo. Refuse JSON writes that exceed serialization depth instead of silently truncating data, including profile Preferences and backups.
 - `-List` now includes policy totals and DNS policies to remove if present.
