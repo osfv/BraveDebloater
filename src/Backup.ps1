@@ -540,6 +540,15 @@ function New-Backup {
         profileFiles = @()
     }
 
+    # Refuse to overwrite a current value that the restore validation would later reject, otherwise
+    # the printed undo command fails and the original value is lost.
+    try {
+        Assert-BackupPolicyList -Backup ([pscustomobject]$backup) -PolicyDefinitions (Get-ManifestMap -Object $Manifest.policies) -DeprecatedPolicyNames @(Get-DeprecatedPolicyNames -Manifest $Manifest)
+    }
+    catch {
+        throw "No changes were made. A current policy value at '$($Target.Path)' could not be backed up in a restorable form: $($_.Exception.Message) Fix or remove that value, then rerun with -Apply."
+    }
+
     Set-JsonFileContent -Path $path -Object $backup -Depth 20
     return $path
 }

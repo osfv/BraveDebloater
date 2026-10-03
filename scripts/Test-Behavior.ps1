@@ -1434,6 +1434,87 @@ try {
         throw 'packaging/scoop/bravedebloater.json must shim Invoke-BraveDebloat.ps1 and persist backups.'
     }
 
+    # An existing value that restore would reject must stop the apply before anything is written,
+    # otherwise the printed undo command cannot bring the original value back.
+    $unrestorablePolicyPath = Join-Path $tempRoot 'unrestorable-policy.json'
+    $unrestorableBackupDirectory = Join-Path $tempRoot 'UnrestorableBackups'
+    $unrestorableOriginal = '{"BraveRewardsDisabled":"true"}'
+    [System.IO.File]::WriteAllText($unrestorablePolicyPath, $unrestorableOriginal, $utf8NoBom)
+    $unrestorableOutput = ''
+    try {
+        $unrestorableOutput = (& $scriptPath -Platform Linux -PolicyPath $unrestorablePolicyPath -OnlyFeature Rewards -BackupDirectory $unrestorableBackupDirectory -Apply *>&1 | Out-String -Width 4096)
+    }
+    catch {
+        $unrestorableOutput = $_.Exception.Message
+    }
+    Assert-TextContains -Text $unrestorableOutput -Expected 'could not be backed up in a restorable form' -Context 'unrestorable current value apply'
+    if ([System.IO.File]::ReadAllText($unrestorablePolicyPath, $utf8NoBom) -ne $unrestorableOriginal) {
+        throw 'Apply changed a policy value whose backup could not be restored.'
+    }
+    if ((Test-Path -LiteralPath $unrestorableBackupDirectory) -and @(Get-ChildItem -LiteralPath $unrestorableBackupDirectory -Filter 'BraveDebloater-*.json').Count -gt 0) {
+        throw 'Apply wrote a backup that restore validation would reject.'
+    }
+
+    # A profile patch whose parent is null or a scalar must be skipped instead of crashing or
+    # replacing that parent value.
+    $blockedProfileRoot = Join-Path $tempRoot 'BlockedProfileRoot'
+    $blockedProfileDirectory = Join-Path $blockedProfileRoot 'Default'
+    New-Item -ItemType Directory -Path $blockedProfileDirectory -Force | Out-Null
+    $blockedPreferences = Join-Path $blockedProfileDirectory 'Preferences'
+    $blockedOriginal = '{"brave":{"today":null,"new_tab_page":"x"}}'
+    [System.IO.File]::WriteAllText($blockedPreferences, $blockedOriginal, $utf8NoBom)
+    $blockedOutput = (& $scriptPath -Platform Linux -PolicyPath (Join-Path $tempRoot 'blocked-policy.json') -OnlyFeature News,NewTabBackgrounds -IncludeProfilePreferences -ProfileRoot $blockedProfileRoot -BackupDirectory (Join-Path $tempRoot 'BlockedBackups') -Apply *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $blockedOutput -Expected 'because a parent value is not a JSON object' -Context 'blocked profile patch warning'
+    if ([System.IO.File]::ReadAllText($blockedPreferences, $utf8NoBom) -ne $blockedOriginal) {
+        throw 'Profile cleanup replaced a non-object parent value.'
+    }
+
+    # Profile folders that normalize to the same backup name must not overwrite each other's copy.
+    $sameNameProfileRoot = Join-Path $tempRoot 'SameNameProfileRoot'
+    $sameNameBackupDirectory = Join-Path $tempRoot 'SameNameBackups'
+    $sameNamePolicyPath = Join-Path $tempRoot 'same-name-policy.json'
+    foreach ($sameNameProfile in @('Profile 1', 'Profile_1')) {
+        $sameNameDirectory = Join-Path $sameNameProfileRoot $sameNameProfile
+        New-Item -ItemType Directory -Path $sameNameDirectory -Force | Out-Null
+        [System.IO.File]::WriteAllText((Join-Path $sameNameDirectory 'Preferences'), "{`"brave`":{`"rewards`":{`"enabled`":true}},`"marker`":`"$sameNameProfile`"}", $utf8NoBom)
+    }
+    & $scriptPath -Platform Linux -PolicyPath $sameNamePolicyPath -OnlyFeature Rewards -IncludeProfilePreferences -ProfileRoot $sameNameProfileRoot -BackupDirectory $sameNameBackupDirectory -Apply *>&1 | Out-Null
+    $sameNameBackup = @(Get-ChildItem -LiteralPath $sameNameBackupDirectory -Filter 'BraveDebloater-*.json')[0].FullName
+    $sameNameProfileFiles = @((Get-Content -LiteralPath $sameNameBackup -Raw | ConvertFrom-Json).profileFiles)
+    if ($sameNameProfileFiles.Count -ne 2 -or @($sameNameProfileFiles.backupPath | Select-Object -Unique).Count -ne 2) {
+        throw 'Profiles with colliding safe names shared one Preferences backup file.'
+    }
+    & $scriptPath -UndoFromBackup $sameNameBackup -PolicyPath $sameNamePolicyPath -ProfileRoot $sameNameProfileRoot -Apply *>&1 | Out-Null
+    foreach ($sameNameProfile in @('Profile 1', 'Profile_1')) {
+        $sameNameRestored = [System.IO.File]::ReadAllText((Join-Path (Join-Path $sameNameProfileRoot $sameNameProfile) 'Preferences'), $utf8NoBom) | ConvertFrom-Json
+        if ($sameNameRestored.marker -ne $sameNameProfile -or $sameNameRestored.brave.rewards.enabled -ne $true) {
+            throw "Restore did not bring back the original Preferences for '$sameNameProfile'."
+        }
+    }
+
+    # Profile writes honor ShouldProcess, so a declined -Confirm or -WhatIf leaves the file alone.
+    function Test-ProfileCleanupWhatIf {
+        param([string]$ProfileRootPath)
+
+        $ProjectRoot = $root
+        . (Join-Path $root 'src/Common.ps1')
+        . (Join-Path $root 'src/Manifest.ps1')
+        . (Join-Path $root 'src/ProfilePreferences.ps1')
+        Invoke-ProfilePreferenceCleanup -Root $ProfileRootPath -Manifest (Get-Manifest) -BackupPath (Join-Path $tempRoot 'whatif-backup.json') -SelectedFeatureIds @('Rewards') -UseFeatureFilter -DoApply -WhatIf *>&1 | Out-Null
+    }
+    $whatIfProfileRoot = Join-Path $tempRoot 'WhatIfProfileRoot'
+    New-Item -ItemType Directory -Path (Join-Path $whatIfProfileRoot 'Default') -Force | Out-Null
+    $whatIfPreferences = Join-Path (Join-Path $whatIfProfileRoot 'Default') 'Preferences'
+    $whatIfOriginal = '{"brave":{"rewards":{"enabled":true}}}'
+    [System.IO.File]::WriteAllText($whatIfPreferences, $whatIfOriginal, $utf8NoBom)
+    Test-ProfileCleanupWhatIf -ProfileRootPath $whatIfProfileRoot
+    if ([System.IO.File]::ReadAllText($whatIfPreferences, $utf8NoBom) -ne $whatIfOriginal) {
+        throw 'Profile cleanup wrote Preferences even though ShouldProcess declined the change.'
+    }
+    if (@(Get-ChildItem -LiteralPath $tempRoot -Filter 'whatif-backup*').Count -gt 0) {
+        throw 'Profile cleanup created a profile backup even though ShouldProcess declined the change.'
+    }
+
     & (Join-Path $root 'tests/WriteSafety.ps1') -TempRoot (Join-Path $tempRoot 'WriteSafety')
     Write-Host 'Behavior checks passed.'
 }
