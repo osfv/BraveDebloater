@@ -165,11 +165,11 @@ function Invoke-ProfilePreferenceCleanup {
             $current = Get-JsonPathResult -Object $json -Path $path
             $createMissing = [bool]$patch.createMissing
 
-            if (-not $current.exists -and -not $createMissing) {
-                continue
-            }
             if ($current.blocked) {
                 Write-Warning "Skipping $path in $file because a parent value is not a JSON object. This setting was not changed."
+                continue
+            }
+            if (-not $current.exists -and -not $createMissing) {
                 continue
             }
 

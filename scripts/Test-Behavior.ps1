@@ -1461,10 +1461,11 @@ try {
     $blockedProfileDirectory = Join-Path $blockedProfileRoot 'Default'
     New-Item -ItemType Directory -Path $blockedProfileDirectory -Force | Out-Null
     $blockedPreferences = Join-Path $blockedProfileDirectory 'Preferences'
-    $blockedOriginal = '{"brave":{"today":null,"new_tab_page":"x"}}'
+    $blockedOriginal = '{"brave":{"today":null,"new_tab_page":"x","rewards":null}}'
     [System.IO.File]::WriteAllText($blockedPreferences, $blockedOriginal, $utf8NoBom)
-    $blockedOutput = (& $scriptPath -Platform Linux -PolicyPath (Join-Path $tempRoot 'blocked-policy.json') -OnlyFeature News,NewTabBackgrounds -IncludeProfilePreferences -ProfileRoot $blockedProfileRoot -BackupDirectory (Join-Path $tempRoot 'BlockedBackups') -Apply *>&1 | Out-String -Width 4096)
+    $blockedOutput = (& $scriptPath -Platform Linux -PolicyPath (Join-Path $tempRoot 'blocked-policy.json') -OnlyFeature News,NewTabBackgrounds,Rewards -IncludeProfilePreferences -ProfileRoot $blockedProfileRoot -BackupDirectory (Join-Path $tempRoot 'BlockedBackups') -Apply *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $blockedOutput -Expected 'because a parent value is not a JSON object' -Context 'blocked profile patch warning'
+    Assert-TextContains -Text $blockedOutput -Expected 'Skipping brave.rewards.enabled' -Context 'blocked profile patch warning without createMissing'
     if ([System.IO.File]::ReadAllText($blockedPreferences, $utf8NoBom) -ne $blockedOriginal) {
         throw 'Profile cleanup replaced a non-object parent value.'
     }
