@@ -6,15 +6,21 @@ function Get-JsonPathResult {
         [Parameter(Mandatory = $true)][string]$Path
     )
 
+    # Blocked means a parent on the path exists but is not a JSON object (null, a scalar, or an array),
+    # so the value cannot be created there without replacing that parent.
     $current = $Object
     foreach ($part in ($Path -split '\.')) {
-        if ($null -eq $current -or $null -eq $current.PSObject.Properties[$part]) {
-            return [pscustomobject]@{ exists = $false; value = $null }
+        if ($current -isnot [System.Management.Automation.PSCustomObject]) {
+            return [pscustomobject]@{ exists = $false; value = $null; blocked = $true }
         }
-        $current = $current.PSObject.Properties[$part].Value
+        $property = $current.PSObject.Properties[$part]
+        if ($null -eq $property) {
+            return [pscustomobject]@{ exists = $false; value = $null; blocked = $false }
+        }
+        $current = $property.Value
     }
 
-    return [pscustomobject]@{ exists = $true; value = $current }
+    return [pscustomobject]@{ exists = $true; value = $current; blocked = $false }
 }
 
 function Set-JsonPathValue {
@@ -38,6 +44,9 @@ function Set-JsonPathValue {
             $current | Add-Member -NotePropertyName $part -NotePropertyValue $child
         }
         $current = $current.PSObject.Properties[$part].Value
+        if ($current -isnot [System.Management.Automation.PSCustomObject]) {
+            return $false
+        }
     }
 
     $leaf = $parts[-1]
@@ -77,6 +86,7 @@ function Get-BraveProfilePreferenceFiles {
 }
 
 function Invoke-ProfilePreferenceCleanup {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [string]$Root,
         [Parameter(Mandatory = $true)]$Manifest,
@@ -155,6 +165,10 @@ function Invoke-ProfilePreferenceCleanup {
             $current = Get-JsonPathResult -Object $json -Path $path
             $createMissing = [bool]$patch.createMissing
 
+            if ($current.blocked) {
+                Write-Warning "Skipping $path in $file because a parent value is not a JSON object. This setting was not changed."
+                continue
+            }
             if (-not $current.exists -and -not $createMissing) {
                 continue
             }
@@ -182,7 +196,10 @@ function Invoke-ProfilePreferenceCleanup {
             }
         }
 
-        if ($DoApply -and $changed) {
+        if ($DoApply -and $changed -and -not $PSCmdlet.ShouldProcess($file, 'Update Brave profile preferences')) {
+            Write-Step "Skipped profile preferences in $file. No changes were made to this file."
+        }
+        elseif ($DoApply -and $changed) {
             # Each backup gets its own folder under profile-files/ so a later apply run cannot
             # overwrite the original Preferences copy that an earlier backup still points to.
             $profileBackupDirectory = Get-ProfileBackupDirectory -BackupPath $BackupPath
@@ -190,6 +207,13 @@ function Invoke-ProfilePreferenceCleanup {
 
             $safeName = ($file -replace '[:\\\/ ]', '_')
             $profileBackupPath = Join-Path $profileBackupDirectory "$safeName.bak"
+            # Different profile folders can map to the same safe name (for example 'Profile 1' and
+            # 'Profile_1'), so never let one profile's copy overwrite another's in the same backup.
+            $copyNumber = 1
+            while (@($profileBackups | Where-Object { $_.backupPath -ieq $profileBackupPath }).Count -gt 0) {
+                $copyNumber++
+                $profileBackupPath = Join-Path $profileBackupDirectory "$safeName-$copyNumber.bak"
+            }
             Copy-FileLiteral -SourcePath $file -DestinationPath $profileBackupPath
             [void]$profileBackups.Add([pscustomobject]@{
                 originalPath = $file
