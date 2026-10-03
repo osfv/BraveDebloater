@@ -1543,6 +1543,22 @@ try {
     if (Test-Path -LiteralPath $whatIfReportPath) {
         throw '-ReportPath wrote a report under -WhatIf.'
     }
+    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $whatIfReportPath -NoOpenReport -WhatIf *>&1 | Out-Null
+    if (Test-Path -LiteralPath $whatIfReportPath) {
+        throw '-ReportPath wrote a report under -WhatIf without -Apply.'
+    }
+
+    $reportProfileRoot = Join-Path $reportRoot 'ProfileRoot'
+    New-Item -ItemType Directory -Path (Join-Path $reportProfileRoot 'Default') -Force | Out-Null
+    $reportPreferences = Join-Path (Join-Path $reportProfileRoot 'Default') 'Preferences'
+    [System.IO.File]::WriteAllText($reportPreferences, '{"brave":{"rewards":{"enabled":true}}}', $utf8NoBom)
+    $profileReportPath = Join-Path $reportRoot 'profile.html'
+    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -IncludeProfilePreferences -ProfileRoot $reportProfileRoot -ReportPath $profileReportPath -NoOpenReport *>&1 | Out-Null
+    $profileReport = [System.IO.File]::ReadAllText($profileReportPath)
+    Assert-TextContains -Text $profileReport -Expected 'Profile Default' -Context 'profile preferences report'
+    Assert-TextContains -Text $profileReport -Expected '<code>brave.rewards.enabled</code>' -Context 'profile preferences report'
+    Assert-TextContains -Text $profileReport -Expected '1 change would be made' -Context 'profile preferences report count'
+    Assert-TextContains -Text $profileReport -Expected 'true &rarr; false' -Context 'profile preferences report value'
 
     $applyReportPath = Join-Path $reportRoot 'applied.html'
     & $scriptPath -Platform Linux -OnlyFeature Rewards,Wallet -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $applyReportPath -NoOpenReport -Apply -Confirm:$false *>&1 | Out-Null
@@ -1550,7 +1566,7 @@ try {
     Assert-TextContains -Text $applyReport -Expected 'Applied' -Context 'apply report'
     Assert-TextContains -Text $applyReport -Expected '-UndoFromBackup' -Context 'apply report undo command'
     Assert-TextContains -Text $applyReport -Expected 'Invoke-BraveDebloat.ps1' -Context 'apply report undo command'
-    Assert-TextContains -Text $applyReport -Expected 'change was made' -Context 'apply report status'
+    Assert-TextContains -Text $applyReport -Expected '2 changes were made' -Context 'apply report status'
 
     foreach ($badReportCommand in @(
             { & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -ReportPath (Join-Path $reportRoot 'report.txt') | Out-Null },

@@ -318,7 +318,7 @@ function ConvertTo-RunReportHtml {
         param($Row)
         $label = if ([string]::IsNullOrWhiteSpace($Row.Feature)) { $Row.Name } else { $Row.Feature }
         $label = $label.Substring(0, 1).ToUpperInvariant() + $label.Substring(1)
-        $value = if ($Row.Kind -eq 'Policy') { "$(& $e $Row.Before) &rarr; $(& $e $Row.NewValue)" } else { 'removed' }
+        $value = if ($Row.Kind -eq 'Removal') { "$(& $e $Row.Before) &rarr; removed" } else { "$(& $e $Row.Before) &rarr; $(& $e $Row.NewValue)" }
         "<li><div><b>$(& $e $label)</b><code>$(& $e $Row.Name)</code></div><span>$value</span></li>"
     }
 

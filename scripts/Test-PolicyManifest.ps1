@@ -100,6 +100,7 @@ function Test-PolicyTemplateComparer {
             '<policy name="Kept"><parentCategory ref="Brave"/></policy>' +
             '<policy name="Kept_recommended"><parentCategory ref="Brave"/></policy>' +
             '<policy name="BrandNew"><parentCategory ref="Brave"/></policy>' +
+            '<policy name="Revived"><parentCategory ref="Brave"/></policy>' +
             '<policy name="BraveRewardsDisabled"><parentCategory ref="DeprecatedPolicies"/></policy>' +
             '</policies></policyDefinitions>'
         $zipPath = Join-Path $tempRoot 'template.zip'
@@ -117,12 +118,12 @@ function Test-PolicyTemplateComparer {
         }
 
         $snapshotPath = Join-Path $tempRoot 'snapshot.json'
-        Set-Content -LiteralPath $snapshotPath -Value '{"templateVersion":"1.0.0.0","policies":["Kept","Gone","BraveRewardsDisabled"],"deprecatedPolicies":[]}' -Encoding UTF8
+        Set-Content -LiteralPath $snapshotPath -Value '{"templateVersion":"1.0.0.0","policies":["Kept","Gone","BraveRewardsDisabled"],"deprecatedPolicies":["Revived"]}' -Encoding UTF8
         $summaryPath = Join-Path $tempRoot 'summary.md'
         & (Join-Path $root 'scripts/Compare-PolicyTemplates.ps1') -TemplateZipPath $zipPath -SnapshotPath $snapshotPath -SummaryPath $summaryPath -Update *> $null
 
         $summary = [System.IO.File]::ReadAllText($summaryPath)
-        foreach ($expected in @('1.0.0.0 -> 2.0.0.1', '### New policies (1)', '- `BrandNew`', '### Removed policies (1)', '- `Gone`', '### Newly deprecated policies (1)', '- `BraveRewardsDisabled` (managed by BraveDebloater)', '**Action needed:**')) {
+        foreach ($expected in @('1.0.0.0 -> 2.0.0.1', '### New policies (1)', '- `BrandNew`', '### Removed policies (1)', '- `Gone`', '### Newly deprecated policies (1)', '- `BraveRewardsDisabled` (managed by BraveDebloater)', '### No longer deprecated policies (1)', '- `Revived`', '**Action needed:**')) {
             if (-not $summary.Contains($expected)) {
                 throw "Compare-PolicyTemplates.ps1 summary is missing '$expected'."
             }
@@ -131,7 +132,7 @@ function Test-PolicyTemplateComparer {
             throw 'Compare-PolicyTemplates.ps1 listed a _recommended duplicate policy.'
         }
         $updated = Get-Content -LiteralPath $snapshotPath -Raw | ConvertFrom-Json
-        if ([string]$updated.templateVersion -ne '2.0.0.1' -or (@($updated.policies) -join ',') -ne 'BrandNew,Kept' -or (@($updated.deprecatedPolicies) -join ',') -ne 'BraveRewardsDisabled') {
+        if ([string]$updated.templateVersion -ne '2.0.0.1' -or (@($updated.policies) -join ',') -ne 'BrandNew,Kept,Revived' -or (@($updated.deprecatedPolicies) -join ',') -ne 'BraveRewardsDisabled') {
             throw 'Compare-PolicyTemplates.ps1 -Update did not record the new snapshot.'
         }
     }

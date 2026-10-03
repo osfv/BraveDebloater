@@ -403,6 +403,11 @@ if ((-not $applyChanges -or $reportRequested) -and $policyTarget.Kind -ne 'Mobil
 }
 
 $reportRows = New-Object System.Collections.Generic.List[object]
+$removalCurrentValues = $null
+$removalNames = @(@($obsoletePolicyNames) + @($dnsPresentRemovals))
+if ($reportRequested -and $removalNames.Count -gt 0 -and $policyTarget.Kind -ne 'MobileMDM') {
+    $removalCurrentValues = Get-PolicyValueMap -Target $policyTarget -PolicyNames $removalNames
+}
 $policyFeatureLabels = @{}
 foreach ($feature in $features) {
     foreach ($name in @($feature.policies)) {
@@ -429,7 +434,7 @@ foreach ($policyName in $policyNames) {
         Set-PolicyValue -Target $policyTarget -Name $policyName -Definition $definition
         $appliedPolicyCount++
         Write-Step "Set $policyName."
-        $reportStatus = if ($stateNote.AlreadySet) { 'Already set' } else { 'Set' }
+        $reportStatus = 'Set'
     }
     else {
         $reportStatus = 'Skipped'
@@ -458,7 +463,7 @@ foreach ($policyName in $obsoletePolicyNames) {
         $reportStatus = 'Skipped'
     }
     if ($reportRequested) {
-        [void]$reportRows.Add([pscustomobject]@{ Kind = 'Removal'; Name = $policyName; Feature = ''; Reason = 'Brave marks this policy obsolete.'; Before = 'Set'; NewValue = ''; Status = $reportStatus })
+        [void]$reportRows.Add([pscustomobject]@{ Kind = 'Removal'; Name = $policyName; Feature = ''; Reason = 'Brave marks this policy obsolete.'; Before = (Get-RunReportCurrentText -CurrentValues $removalCurrentValues -Name $policyName); NewValue = ''; Status = $reportStatus })
     }
 }
 
@@ -478,12 +483,16 @@ foreach ($policyName in $dnsPresentRemovals) {
         $reportStatus = 'Skipped'
     }
     if ($reportRequested) {
-        [void]$reportRows.Add([pscustomobject]@{ Kind = 'Removal'; Name = $policyName; Feature = 'DNS over HTTPS'; Reason = 'Removed so Brave settings control DNS again.'; Before = 'Set'; NewValue = ''; Status = $reportStatus })
+        [void]$reportRows.Add([pscustomobject]@{ Kind = 'Removal'; Name = $policyName; Feature = 'DNS over HTTPS'; Reason = 'Removed so Brave settings control DNS again.'; Before = (Get-RunReportCurrentText -CurrentValues $removalCurrentValues -Name $policyName); NewValue = ''; Status = $reportStatus })
     }
 }
 
 if ($IncludeProfilePreferences) {
-    Invoke-ProfilePreferenceCleanup -Root $ProfileRoot -Manifest $manifest -BackupPath $backupPath -SelectedFeatureIds $selectedFeatureIds -UseFeatureFilter:$customFeatureRequested -DoApply:$applyChanges
+    $profileReportRows = $null
+    if ($reportRequested) {
+        $profileReportRows = $reportRows
+    }
+    Invoke-ProfilePreferenceCleanup -Root $ProfileRoot -Manifest $manifest -BackupPath $backupPath -SelectedFeatureIds $selectedFeatureIds -UseFeatureFilter:$customFeatureRequested -DoApply:$applyChanges -ReportRows $profileReportRows
 }
 
 $obsoletePlanSummary = if ($obsoletePolicyNames.Count -gt 0) { ", $($obsoletePolicyNames.Count) obsolete leftover(s) to remove" } else { '' }
@@ -512,42 +521,42 @@ else {
 }
 
 if ($reportRequested) {
-    $reportMode = if ($applyChanges) { 'Apply' } elseif ($isWhatIf) { 'WhatIf' } else { 'DryRun' }
-    $undoCommand = ''
-    $undoText = ''
-    if ($applyChanges -and $null -ne $backupPath) {
-        $undoPrefix = 'To undo this run, rerun BraveDebloater with: '
-        if ($undoHint.StartsWith($undoPrefix)) {
-            $commandPrefix = if ([System.IO.Path]::DirectorySeparatorChar -eq '\') { '.\' } else { './' }
-            $entrypoint = if ($env:BRAVEDEBLOATER_LAUNCHER -eq '1') { "$($commandPrefix)BraveDebloat.exe" } else { "$($commandPrefix)Invoke-BraveDebloat.ps1" }
-            $undoCommand = "$entrypoint $($undoHint.Substring($undoPrefix.Length))"
-        }
-        else {
-            $undoText = $undoHint
-        }
-    }
-    $reportDetails = [ordered]@{
-        'Preset' = if ($onlyFeatureMode) { '(none - OnlyFeature mode)' } else { $Preset }
-        'Platform' = $platformName
-        'Channel' = $Channel
-        'Scope' = $Scope
-        'Policy target' = $policyTarget.Path
-        'Shield baseline' = if ($LockShields) { 'Locked on by policy' } else { 'Not locked' }
-        'DNS over HTTPS' = if ($null -ne $dnsPlan) { $dnsPlan.Summary } else { 'Not managed' }
-        'Features' = if ($customFeatureRequested) { $selectedFeatureIds -join ', ' } else { 'Preset default' }
-        'Profile preferences' = if ($IncludeProfilePreferences) { "Included ($ProfileRoot). See the console output for each file." } else { 'Not included' }
-        'Backup' = if ($null -ne $backupPath) { $backupPath } elseif ($applyChanges) { 'None (-NoBackup)' } else { 'Written on -Apply' }
-    }
-    $report = [pscustomobject]@{
-        Mode = $reportMode; ToolVersion = $ToolVersion; GeneratedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')
-        LogoDataUri = (Get-RunReportLogoDataUri -ProjectRoot $ProjectRoot); Details = $reportDetails; Rows = $reportRows.ToArray()
-        UndoCommand = $undoCommand; UndoText = $undoText
-    }
-    if ($isWhatIf -and -not $PSCmdlet.ShouldProcess($ReportPath, 'Write HTML report')) {
+    $reportMode = if ($applyChanges) { 'Apply' } elseif ($WhatIfPreference) { 'WhatIf' } else { 'DryRun' }
+    if (-not $PSCmdlet.ShouldProcess($ReportPath, 'Write HTML report')) {
         Write-Step 'Report skipped. No report file was written.'
     }
     else {
         try {
+            $undoCommand = ''
+            $undoText = ''
+            if ($applyChanges -and $null -ne $backupPath) {
+                $undoPrefix = 'To undo this run, rerun BraveDebloater with: '
+                if ($undoHint.StartsWith($undoPrefix)) {
+                    $commandPrefix = if ([System.IO.Path]::DirectorySeparatorChar -eq '\') { '.\' } else { './' }
+                    $entrypoint = if ($env:BRAVEDEBLOATER_LAUNCHER -eq '1') { "$($commandPrefix)BraveDebloat.exe" } else { "$($commandPrefix)Invoke-BraveDebloat.ps1" }
+                    $undoCommand = "$entrypoint $($undoHint.Substring($undoPrefix.Length))"
+                }
+                else {
+                    $undoText = $undoHint
+                }
+            }
+            $reportDetails = [ordered]@{
+                'Preset' = if ($onlyFeatureMode) { '(none - OnlyFeature mode)' } else { $Preset }
+                'Platform' = $platformName
+                'Channel' = $Channel
+                'Scope' = $Scope
+                'Policy target' = $policyTarget.Path
+                'Shield baseline' = if ($LockShields) { 'Locked on by policy' } else { 'Not locked' }
+                'DNS over HTTPS' = if ($null -ne $dnsPlan) { $dnsPlan.Summary } else { 'Not managed' }
+                'Features' = if ($customFeatureRequested) { $selectedFeatureIds -join ', ' } else { 'Preset default' }
+                'Profile preferences' = if ($IncludeProfilePreferences) { "Included ($ProfileRoot)" } else { 'Not included' }
+                'Backup' = if ($null -ne $backupPath) { $backupPath } elseif ($applyChanges) { 'None (-NoBackup)' } else { 'Written on -Apply' }
+            }
+            $report = [pscustomobject]@{
+                Mode = $reportMode; ToolVersion = $ToolVersion; GeneratedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')
+                LogoDataUri = (Get-RunReportLogoDataUri -ProjectRoot $ProjectRoot); Details = $reportDetails; Rows = $reportRows.ToArray()
+                UndoCommand = $undoCommand; UndoText = $undoText
+            }
             Set-TextFileContent -Path $ReportPath -Content (ConvertTo-RunReportHtml -Report $report)
             if (-not $NoOpenReport -and (Open-RunReport -Path $ReportPath)) {
                 Write-Step "Report written to $ReportPath and opened in your browser."

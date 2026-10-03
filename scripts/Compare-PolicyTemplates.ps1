@@ -71,12 +71,13 @@ if (Test-Path -LiteralPath $SnapshotPath) {
 $added = @($active | Where-Object { $previousActive -notcontains $_ -and $previousDeprecated -notcontains $_ })
 $removed = @(@($previousActive) + @($previousDeprecated) | Where-Object { -not $active.Contains($_) -and -not $deprecated.Contains($_) } | Sort-Object -Unique)
 $newlyDeprecated = @($deprecated | Where-Object { $previousDeprecated -notcontains $_ })
+$reactivated = @($active | Where-Object { $previousDeprecated -contains $_ })
 
 $manifest = Get-Content -LiteralPath (Join-Path (Join-Path $root 'config') 'policies.json') -Raw | ConvertFrom-Json
 $managed = @($manifest.policies.PSObject.Properties.Name)
 $managedAffected = @($managed | Where-Object { $removed -contains $_ -or $newlyDeprecated -contains $_ })
 
-$policiesChanged = ($added.Count + $removed.Count + $newlyDeprecated.Count) -gt 0
+$policiesChanged = ($added.Count + $removed.Count + $newlyDeprecated.Count + $reactivated.Count) -gt 0
 $changed = $policiesChanged -or ($templateVersion -ne $previousVersion)
 
 $lines = New-Object System.Collections.Generic.List[string]
@@ -90,7 +91,8 @@ if ($managedAffected.Count -gt 0) {
 foreach ($section in @(
         @{ Title = 'New policies'; Items = $added },
         @{ Title = 'Removed policies'; Items = $removed },
-        @{ Title = 'Newly deprecated policies'; Items = $newlyDeprecated }
+        @{ Title = 'Newly deprecated policies'; Items = $newlyDeprecated },
+        @{ Title = 'No longer deprecated policies'; Items = $reactivated }
     )) {
     [void]$lines.Add("### $($section.Title) ($(@($section.Items).Count))")
     if (@($section.Items).Count -eq 0) {
@@ -103,7 +105,7 @@ foreach ($section in @(
     [void]$lines.Add('')
 }
 if (-not $policiesChanged) {
-    [void]$lines.Add('Only the template version changed. No policies were added, removed, or deprecated.')
+    [void]$lines.Add('Only the template version changed. No policies were added, removed, deprecated, or reactivated.')
 }
 $summary = $lines.ToArray() -join "`n"
 
