@@ -1223,6 +1223,12 @@ try {
     $dnsSecondResolver = 'https://cloudflare-dns.com/dns-query'
     $dnsCommaOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates "$dnsResolver,$dnsSecondResolver" *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $dnsCommaOutput -Expected "Would set DnsOverHttpsTemplates = $dnsResolver $dnsSecondResolver" -Context 'comma-separated DNS templates'
+    $dnsTemplatedOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates "https://dns.google/dns-query{?dns},$dnsSecondResolver" *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsTemplatedOutput -Expected "Would set DnsOverHttpsTemplates = https://dns.google/dns-query{?dns} $dnsSecondResolver" -Context 'comma-separated RFC 8484 DNS templates'
+    # A comma inside a query string belongs to that one template.
+    $dnsEmbeddedTemplate = 'https://dns.example/dns-query?upstreams=https://one.example,https://two.example'
+    $dnsEmbeddedOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates $dnsEmbeddedTemplate *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsEmbeddedOutput -Expected "Would set DnsOverHttpsTemplates = $dnsEmbeddedTemplate" -Context 'DNS template with an embedded URL list'
 
     $dnsTemplateVariantOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates 'https://dns.google/dns-query{?dns}' *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $dnsTemplateVariantOutput -Expected 'Would set DnsOverHttpsTemplates = https://dns.google/dns-query{?dns}' -Context 'DNS template with URI variable'
@@ -1305,6 +1311,20 @@ try {
     Assert-TextContains -Text $backupsOnlyOutput -Expected "Installed BraveDebloater 9.9.9 to $backupsOnlyDestination" -Context 'install.ps1 into a backups-only folder'
     if (-not (Test-Path -LiteralPath (Join-Path $backupsOnlyDestination 'backups/keep.json'))) {
         throw 'install.ps1 lost backups when reinstalling into a backups-only folder.'
+    }
+    # A file named backups is not the preserved backups folder, so the destination still counts as not empty.
+    $backupsFileDestination = Join-Path $installRoot 'BackupsFile'
+    New-Item -ItemType Directory -Path $backupsFileDestination -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $backupsFileDestination 'backups') -Value 'not a folder' -Encoding UTF8
+    $backupsFileRejected = $false
+    try {
+        & $installScriptPath -ArchivePath $firstArchive -Destination $backupsFileDestination *>&1 | Out-Null
+    }
+    catch {
+        $backupsFileRejected = $_.Exception.Message -like '*is not empty*'
+    }
+    if (-not $backupsFileRejected) {
+        throw 'install.ps1 installed into a folder whose only entry is a file named backups.'
     }
 
     # The printed Set-Location line must stay valid PowerShell when the path has an apostrophe (C:\Users\O'Brien).
