@@ -1335,6 +1335,19 @@ try {
     if (-not $backupsFileRejected) {
         throw 'install.ps1 installed into a folder whose only entry is a file named backups.'
     }
+    # The tool writes a lowercase backups/ folder, so a case variant such as Backups/ is unrelated content.
+    $backupsCaseDestination = Join-Path $installRoot 'BackupsCase'
+    New-Item -ItemType Directory -Path (Join-Path $backupsCaseDestination 'Backups') -Force | Out-Null
+    $backupsCaseRejected = $false
+    try {
+        & $installScriptPath -ArchivePath $firstArchive -Destination $backupsCaseDestination *>&1 | Out-Null
+    }
+    catch {
+        $backupsCaseRejected = $_.Exception.Message -like '*is not empty*'
+    }
+    if (-not $backupsCaseRejected) {
+        throw 'install.ps1 installed into a folder whose only entry is a Backups folder with different casing.'
+    }
 
     # The printed Set-Location line must stay valid PowerShell when the path has an apostrophe (C:\Users\O'Brien).
     $apostropheDestination = Join-Path $installRoot "O'Brien"

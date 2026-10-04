@@ -268,7 +268,7 @@ function Install-BraveDebloater {
             }
             $previousVersion = Get-ToolVersionFromFolder -Folder $Destination
             # A folder that only holds backups/ (tool files deleted, backups kept) is a valid reinstall target.
-            $existingEntries = @([System.IO.Directory]::GetFileSystemEntries($Destination) | Where-Object { -not ([System.IO.Path]::GetFileName($_) -eq 'backups' -and [System.IO.Directory]::Exists($_)) })
+            $existingEntries = @([System.IO.Directory]::GetFileSystemEntries($Destination) | Where-Object { -not ([System.IO.Path]::GetFileName($_) -ceq 'backups' -and [System.IO.Directory]::Exists($_)) })
             if ($existingEntries.Count -gt 0 -and [string]::IsNullOrWhiteSpace($previousVersion)) {
                 throw "Destination $Destination is not empty and does not contain $entrypointName. Pick an empty folder or an existing BraveDebloater folder with -Destination."
             }
