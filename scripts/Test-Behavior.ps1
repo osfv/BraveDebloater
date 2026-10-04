@@ -1335,9 +1335,10 @@ try {
     if (-not $backupsFileRejected) {
         throw 'install.ps1 installed into a folder whose only entry is a file named backups.'
     }
-    # The tool writes a lowercase backups/ folder, so a case variant such as Backups/ is unrelated content.
+    # Backups/ is the tool's backups/ folder only on a case-insensitive filesystem; elsewhere it is unrelated content.
     $backupsCaseDestination = Join-Path $installRoot 'BackupsCase'
     New-Item -ItemType Directory -Path (Join-Path $backupsCaseDestination 'Backups') -Force | Out-Null
+    $caseInsensitiveFileSystem = [System.IO.Directory]::Exists((Join-Path $backupsCaseDestination 'backups'))
     $backupsCaseRejected = $false
     try {
         & $installScriptPath -ArchivePath $firstArchive -Destination $backupsCaseDestination *>&1 | Out-Null
@@ -1345,8 +1346,11 @@ try {
     catch {
         $backupsCaseRejected = $_.Exception.Message -like '*is not empty*'
     }
-    if (-not $backupsCaseRejected) {
-        throw 'install.ps1 installed into a folder whose only entry is a Backups folder with different casing.'
+    if ($caseInsensitiveFileSystem -and $backupsCaseRejected) {
+        throw 'install.ps1 refused a folder whose only entry is Backups/, which is the backups folder on this case-insensitive filesystem.'
+    }
+    if (-not $caseInsensitiveFileSystem -and -not $backupsCaseRejected) {
+        throw 'install.ps1 installed into a folder whose only entry is Backups/, which is unrelated content on this case-sensitive filesystem.'
     }
 
     # The printed Set-Location line must stay valid PowerShell when the path has an apostrophe (C:\Users\O'Brien).

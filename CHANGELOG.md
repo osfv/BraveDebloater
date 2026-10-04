@@ -4,7 +4,7 @@
 
 - `-DnsOverHttpsTemplates https://a,https://b` through `powershell -File` or `BraveDebloat.exe` now sets two resolvers. Previously the comma-joined text was written as one invalid template. A comma before `https://` that comes after a query string is ambiguous, so it is now rejected with a hint to use spaces or `%2C`.
 - The undo command printed through `BraveDebloat.exe` no longer ends a quoted path with a backslash (for example `-ProfileRoot "...\User Data\"`), which escaped the closing quote and broke the pasted command.
-- `install.ps1` installs into a folder that only holds a `backups/` folder instead of refusing it as not empty. The name match is case-sensitive, so an unrelated `Backups/` folder still counts as existing content.
+- `install.ps1` installs into a folder that only holds a `backups/` folder instead of refusing it as not empty. A `Backups/` folder counts as that folder only on case-insensitive filesystems (Windows, default macOS); on case-sensitive filesystems it is treated as existing content.
 - `install.ps1` doubles apostrophes in the printed `Set-Location` command, so paths such as `C:\Users\O'Brien\...` can be pasted as is.
 
 ## 0.7.0 - 2026-10-03
