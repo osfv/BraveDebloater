@@ -205,7 +205,10 @@ function Invoke-ProfilePreferenceCleanup {
             $profileBackupDirectory = Get-ProfileBackupDirectory -BackupPath $BackupPath
             New-DirectoryLiteral -Path $profileBackupDirectory
 
-            $safeName = ($file -replace '[:\\\/ ]', '_')
+            # Name the copy after its path under the profile root, not the full path, so the backup path stays
+            # within the 260-character limit of Windows PowerShell 5.1 file APIs.
+            $relativeFile = (Get-FullFileSystemPath -Path $file).Substring((Get-FullFileSystemPath -Path $Root).TrimEnd('\', '/').Length).TrimStart('\', '/')
+            $safeName = ($relativeFile -replace '[:\\\/ ]', '_')
             $profileBackupPath = Join-Path $profileBackupDirectory "$safeName.bak"
             # Different profile folders can map to the same safe name (for example 'Profile 1' and
             # 'Profile_1'), so never let one profile's copy overwrite another's in the same backup.

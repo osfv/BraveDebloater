@@ -357,7 +357,7 @@ function Install-BraveDebloater {
         $runCommand = if ($isWindowsHost) { ".\$entrypointName" } else { "./$entrypointName" }
         Write-InstallStep ''
         Write-InstallStep 'Next: preview what would change. Nothing is written until you add -Apply.'
-        Write-InstallStep "  Set-Location '$($Destination.Replace("'", "''"))'"
+        Write-InstallStep "  Set-Location -LiteralPath '$($Destination.Replace("'", "''"))'"
         Write-InstallStep "  $runCommand"
         if ($isWindowsHost -and @('Restricted', 'AllSigned') -contains [string](Get-ExecutionPolicy)) {
             Write-InstallStep ''

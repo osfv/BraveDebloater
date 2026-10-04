@@ -737,6 +737,12 @@ try {
         throw 'Linux policy apply wrote a UTF-8 BOM to the managed policy file.'
     }
     $utf8Backup = @(Get-ChildItem -LiteralPath $utf8BackupDirectory -Filter 'BraveDebloater-*.json')[0].FullName
+    # Profile copies are named after their path under the profile root, so a deep backup folder does not
+    # push the copy past the 260-character limit of Windows PowerShell 5.1 file APIs.
+    $utf8ProfileCopyName = Split-Path -Leaf ([string]@((Get-Content -LiteralPath $utf8Backup -Raw | ConvertFrom-Json).profileFiles)[0].backupPath)
+    if ($utf8ProfileCopyName -ne 'Default_Preferences.bak') {
+        throw "Profile backup copy should be named after its path under the profile root, got '$utf8ProfileCopyName'."
+    }
     $utf8RestoreOutput = (& $scriptPath -UndoFromBackup $utf8Backup -PolicyPath $utf8PolicyPath -ProfileRoot $utf8ProfileRoot -Apply *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $utf8RestoreOutput -Expected 'Restored profile file' -Context 'UTF-8 profile restore output'
     $restoredJson = [System.IO.File]::ReadAllText($utf8Preferences, $utf8NoBom) | ConvertFrom-Json
@@ -1294,6 +1300,21 @@ try {
         throw 'install.ps1 did not extract the release tree into the destination.'
     }
 
+    # The printed Set-Location line must work when pasted, even for folders with an apostrophe or brackets.
+    $quotedInstallDestination = Join-Path $installRoot "it's [quoted] dir"
+    $quotedInstallOutput = (& $installScriptPath -ArchivePath $firstArchive -Destination $quotedInstallDestination *>&1 | Out-String -Width 4096)
+    $printedSetLocation = [regex]::Match($quotedInstallOutput, '(?m)^\s*(Set-Location .+?)\s*$').Groups[1].Value
+    Push-Location -LiteralPath $tempRoot
+    try {
+        Invoke-Expression $printedSetLocation
+        if ((Get-Location).ProviderPath -ne $quotedInstallDestination) {
+            throw "install.ps1 printed '$printedSetLocation', which went to '$((Get-Location).ProviderPath)' instead of $quotedInstallDestination."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+
     New-Item -ItemType Directory -Path (Join-Path $installDestination 'backups') -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $installDestination 'backups/keep.json') -Value '{}' -Encoding UTF8
     Set-Content -LiteralPath (Join-Path $installDestination 'notes.txt') -Value 'mine' -Encoding UTF8
@@ -1352,11 +1373,6 @@ try {
     if (-not $caseInsensitiveFileSystem -and -not $backupsCaseRejected) {
         throw 'install.ps1 installed into a folder whose only entry is Backups/, which is unrelated content on this case-sensitive filesystem.'
     }
-
-    # The printed Set-Location line must stay valid PowerShell when the path has an apostrophe (C:\Users\O'Brien).
-    $apostropheDestination = Join-Path $installRoot "O'Brien"
-    $apostropheOutput = (& $installScriptPath -ArchivePath $firstArchive -Destination $apostropheDestination *>&1 | Out-String -Width 4096)
-    Assert-TextContains -Text $apostropheOutput -Expected ("Set-Location '{0}'" -f $apostropheDestination.Replace("'", "''")) -Context 'install.ps1 next-step command with an apostrophe'
 
     # A failed upgrade must leave the previous install intact. Windows blocks moving a file that is open
     # without FileShare.Delete, which fails the swap after staging (LICENSE is only moved, never read, so
