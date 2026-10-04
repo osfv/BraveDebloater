@@ -1109,6 +1109,25 @@ try {
     Assert-TextContains -Text $doctorKindOutput -Expected 'String' -Context 'Doctor JSON kind output'
     Assert-TextDoesNotContain -Text $doctorKindOutput -Unexpected 'CurrentUser policies:' -Context 'Doctor Linux -PolicyPath output'
 
+    # A quoted launcher hint must not end in a backslash, which would escape the closing double quote.
+    function Get-LauncherQuotedArgument {
+        param([string]$Text)
+
+        . (Join-Path $root 'src/Common.ps1')
+        . (Join-Path $root 'src/Backup.ps1')
+        $env:BRAVEDEBLOATER_LAUNCHER = '1'
+        try {
+            return (ConvertTo-CommandLineArgument -Text $Text)
+        }
+        finally {
+            Remove-Item -LiteralPath Env:BRAVEDEBLOATER_LAUNCHER
+        }
+    }
+    $trailingSlashQuoted = Get-LauncherQuotedArgument -Text 'C:\Users\me\BraveSoftware\Brave-Browser\User Data\'
+    if ($trailingSlashQuoted -ne '"C:\Users\me\BraveSoftware\Brave-Browser\User Data"') {
+        throw "Launcher undo hint quoted a trailing backslash path as $trailingSlashQuoted, which escapes the closing quote."
+    }
+
     # DNS control is opt-in and never part of a preset.
     $defaultDryRun = (& $scriptPath -Platform Linux -PolicyPath (Join-Path $tempRoot 'dns-absent.json') *>&1 | Out-String -Width 4096)
     Assert-TextDoesNotContain -Text $defaultDryRun -Unexpected 'DnsOverHttps' -Context 'default preset dry-run'
@@ -1206,6 +1225,26 @@ try {
         @{ Arguments = @{ DnsOverHttps = 'Secure'; DnsOverHttpsTemplates = 'https:///dns-query' }; Expected = 'is not an https:// URI' },
         @{ Arguments = @{ DnsOverHttps = 'Secure'; DnsOverHttpsTemplates = 'https://' }; Expected = 'is not an https:// URI' }
     )
+    # `powershell -File` and BraveDebloat.exe pass a comma-separated list as one string.
+    $dnsSecondResolver = 'https://cloudflare-dns.com/dns-query'
+    $dnsCommaOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates "$dnsResolver,$dnsSecondResolver" *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsCommaOutput -Expected "Would set DnsOverHttpsTemplates = $dnsResolver $dnsSecondResolver" -Context 'comma-separated DNS templates'
+    $dnsTemplatedOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates "https://dns.google/dns-query{?dns},$dnsSecondResolver" *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsTemplatedOutput -Expected "Would set DnsOverHttpsTemplates = https://dns.google/dns-query{?dns} $dnsSecondResolver" -Context 'comma-separated RFC 8484 DNS templates'
+    # After a query string, ",https://" could be part of the URL or a second resolver, so it is rejected, not guessed.
+    foreach ($dnsAmbiguousTemplate in @('https://dns.example/dns-query?upstreams=https://one.example,https://two.example', "https://resolver.example/dns-query?token=x,$dnsSecondResolver")) {
+        $dnsAmbiguousRejected = $false
+        try {
+            & $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates $dnsAmbiguousTemplate *>&1 | Out-Null
+        }
+        catch {
+            $dnsAmbiguousRejected = $_.Exception.Message -like '*comma before https://*'
+        }
+        if (-not $dnsAmbiguousRejected) {
+            throw "Ambiguous DNS template $dnsAmbiguousTemplate was not rejected."
+        }
+    }
+
     $dnsTemplateVariantOutput = (& $scriptPath -Platform Linux -PolicyPath $dnsPolicyPath -OnlyFeature Rewards -DnsOverHttps Secure -DnsOverHttpsTemplates 'https://dns.google/dns-query{?dns}' *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $dnsTemplateVariantOutput -Expected 'Would set DnsOverHttpsTemplates = https://dns.google/dns-query{?dns}' -Context 'DNS template with URI variable'
     foreach ($dnsErrorCase in $dnsErrorCases) {
@@ -1292,6 +1331,47 @@ try {
     }
     if (Test-Path -LiteralPath (Join-Path $installDestination 'src/Release-9.9.9.ps1')) {
         throw 'install.ps1 upgrade left a stale file inside a replaced folder.'
+    }
+
+    # A folder that only holds backups/ (tool files deleted, backups kept) is reinstalled into, keeping the backups.
+    $backupsOnlyDestination = Join-Path $installRoot 'BackupsOnly'
+    New-Item -ItemType Directory -Path (Join-Path $backupsOnlyDestination 'backups') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $backupsOnlyDestination 'backups/keep.json') -Value '{}' -Encoding UTF8
+    $backupsOnlyOutput = (& $installScriptPath -ArchivePath $firstArchive -Destination $backupsOnlyDestination *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $backupsOnlyOutput -Expected "Installed BraveDebloater 9.9.9 to $backupsOnlyDestination" -Context 'install.ps1 into a backups-only folder'
+    if (-not (Test-Path -LiteralPath (Join-Path $backupsOnlyDestination 'backups/keep.json'))) {
+        throw 'install.ps1 lost backups when reinstalling into a backups-only folder.'
+    }
+    # A file named backups is not the preserved backups folder, so the destination still counts as not empty.
+    $backupsFileDestination = Join-Path $installRoot 'BackupsFile'
+    New-Item -ItemType Directory -Path $backupsFileDestination -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $backupsFileDestination 'backups') -Value 'not a folder' -Encoding UTF8
+    $backupsFileRejected = $false
+    try {
+        & $installScriptPath -ArchivePath $firstArchive -Destination $backupsFileDestination *>&1 | Out-Null
+    }
+    catch {
+        $backupsFileRejected = $_.Exception.Message -like '*is not empty*'
+    }
+    if (-not $backupsFileRejected) {
+        throw 'install.ps1 installed into a folder whose only entry is a file named backups.'
+    }
+    # Backups/ is the tool's backups/ folder only on a case-insensitive filesystem; elsewhere it is unrelated content.
+    $backupsCaseDestination = Join-Path $installRoot 'BackupsCase'
+    New-Item -ItemType Directory -Path (Join-Path $backupsCaseDestination 'Backups') -Force | Out-Null
+    $caseInsensitiveFileSystem = [System.IO.Directory]::Exists((Join-Path $backupsCaseDestination 'backups'))
+    $backupsCaseRejected = $false
+    try {
+        & $installScriptPath -ArchivePath $firstArchive -Destination $backupsCaseDestination *>&1 | Out-Null
+    }
+    catch {
+        $backupsCaseRejected = $_.Exception.Message -like '*is not empty*'
+    }
+    if ($caseInsensitiveFileSystem -and $backupsCaseRejected) {
+        throw 'install.ps1 refused a folder whose only entry is Backups/, which is the backups folder on this case-insensitive filesystem.'
+    }
+    if (-not $caseInsensitiveFileSystem -and -not $backupsCaseRejected) {
+        throw 'install.ps1 installed into a folder whose only entry is Backups/, which is unrelated content on this case-sensitive filesystem.'
     }
 
     # A failed upgrade must leave the previous install intact. Windows blocks moving a file that is open

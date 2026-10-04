@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `-DnsOverHttpsTemplates https://a,https://b` through `powershell -File` or `BraveDebloat.exe` now sets two resolvers. Previously the comma-joined text was written as one invalid template. A comma before `https://` that comes after a query string is ambiguous, so it is now rejected with a hint to use spaces or `%2C`.
+- The undo command printed through `BraveDebloat.exe` no longer ends a quoted path with a backslash (for example `-ProfileRoot "...\User Data\"`), which escaped the closing quote and broke the pasted command.
+- `install.ps1` installs into a folder that only holds a `backups/` folder instead of refusing it as not empty. A `Backups/` folder counts as that folder only on case-insensitive filesystems (Windows, default macOS); on case-sensitive filesystems it is treated as existing content.
 - Fixed profile `Preferences` backups failing under Windows PowerShell 5.1 when the backup folder and profile path were long (for example a WinGet install under `%LOCALAPPDATA%`). Backup copies are now named after their path under the profile root.
 - Fixed the installer's "next steps" `Set-Location` hint so it can be pasted into PowerShell when the install folder contains an apostrophe or brackets.
 - Fixed `scripts/Build-Launcher.ps1` failing under Windows PowerShell 5.1 when `-OutputPath` is an absolute path.
