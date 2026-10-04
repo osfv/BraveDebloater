@@ -97,20 +97,31 @@ function Invoke-ProfilePreferenceCleanup {
         [System.Collections.Generic.List[object]]$ReportRows
     )
 
+    # Skips must reach the report too, or a standalone report would hide that cleanup did not run.
+    $addSkippedRow = {
+        param($Label, $Name, $Reason)
+        if ($null -ne $ReportRows) {
+            [void]$ReportRows.Add([pscustomobject]@{ Kind = 'ProfileSkipped'; Name = $Name; Feature = $Label; Reason = $Reason; Before = ''; NewValue = ''; Status = 'Skipped' })
+        }
+    }
+
     if ([string]::IsNullOrWhiteSpace($Root)) {
         Write-Warning 'No Brave profile root is known for this platform, so profile preference cleanup was skipped. Pass -ProfileRoot with the Brave "User Data" folder, or omit -IncludeProfilePreferences.'
+        & $addSkippedRow 'Profile preferences' '(no profile root)' 'No Brave profile root is known; pass -ProfileRoot.'
         return
     }
 
     $files = @(Get-BraveProfilePreferenceFiles -Root $Root)
     if ($files.Count -eq 0) {
         Write-Warning "No Brave profile Preferences files were found under $Root. Profile preference cleanup was skipped. Check -ProfileRoot or -Channel if Brave is installed."
+        & $addSkippedRow 'Profile preferences' $Root 'No Preferences files found.'
         return
     }
 
     if (Test-BraveRunning) {
         if ($DoApply) {
             Write-Warning 'Brave is running, so profile preference cleanup was skipped. Close Brave, then rerun with -IncludeProfilePreferences -Apply.'
+            & $addSkippedRow 'Profile preferences' $Root 'Brave was running; close it and rerun.'
             return
         }
         Write-Step 'Note: Brave is running. Close it before adding -Apply, or profile preference cleanup will be skipped.'
@@ -133,6 +144,7 @@ function Invoke-ProfilePreferenceCleanup {
         }
 
         $json = $null
+        $profileLabel = "Profile $(Split-Path -Leaf (Split-Path -Parent $file))"
         try {
             $raw = Get-Utf8FileContent -Path $file
             if ([string]::IsNullOrWhiteSpace($raw)) {
@@ -142,22 +154,24 @@ function Invoke-ProfilePreferenceCleanup {
         }
         catch {
             Write-Warning "Skipping invalid profile Preferences file: $file ($($_.Exception.Message)) No changes were made to this file."
+            & $addSkippedRow $profileLabel $file 'Invalid Preferences file.'
             continue
         }
 
         if ($json -isnot [System.Management.Automation.PSCustomObject]) {
             Write-Warning "Skipping invalid profile Preferences file: $file (top-level value is not a JSON object). No changes were made to this file."
+            & $addSkippedRow $profileLabel $file 'Invalid Preferences file.'
             continue
         }
 
         if ($datesMayChange -and (Test-JsonValueContainsDate -Value $json)) {
             Write-Warning "Skipping profile Preferences file: $file (it contains date values that PowerShell $($PSVersionTable.PSVersion) would rewrite). No changes were made to this file. Rerun with PowerShell 7.5 or newer, or Windows PowerShell 5.1."
+            & $addSkippedRow $profileLabel $file 'Contains dates this PowerShell would rewrite.'
             continue
         }
 
         $changed = $false
         $fileRows = New-Object System.Collections.Generic.List[object]
-        $profileLabel = "Profile $(Split-Path -Leaf (Split-Path -Parent $file))"
 
         foreach ($patch in $patches) {
             $path = [string]$patch.path
@@ -171,7 +185,8 @@ function Invoke-ProfilePreferenceCleanup {
             $beforeText = ''
             $newText = ''
             if ($null -ne $ReportRows) {
-                $formatValue = { param($Value) if ($Value -is [bool]) { $Value.ToString().ToLowerInvariant() } else { Get-RunReportValueText -Value $Value } }
+                # Show non-string values as JSON so null, objects, and arrays stay visible in the report.
+                $formatValue = { param($Value) if ($null -eq $Value) { 'null' } elseif ($Value -is [string]) { $Value } else { ConvertTo-Json -InputObject $Value -Compress -Depth 100 } }
                 $beforeText = if ($current.exists) { & $formatValue $current.value } else { 'Not set' }
                 $newText = & $formatValue $patch.value
             }

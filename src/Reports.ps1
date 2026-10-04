@@ -310,6 +310,9 @@ function ConvertTo-RunReportHtml {
     if ($already.Count -gt 0) {
         $lead += " $($already.Count) already set."
     }
+    if ($skipped.Count -gt 0) {
+        $lead += " $($skipped.Count) skipped."
+    }
     if (-not $applied) {
         $lead += ' Nothing was changed.'
     }
@@ -318,7 +321,7 @@ function ConvertTo-RunReportHtml {
         param($Row)
         $label = if ([string]::IsNullOrWhiteSpace($Row.Feature)) { $Row.Name } else { $Row.Feature }
         $label = $label.Substring(0, 1).ToUpperInvariant() + $label.Substring(1)
-        $value = if ($Row.Kind -eq 'Removal') { "$(& $e $Row.Before) &rarr; removed" } else { "$(& $e $Row.Before) &rarr; $(& $e $Row.NewValue)" }
+        $value = if ($Row.Kind -eq 'ProfileSkipped') { & $e $Row.Reason } elseif ($Row.Kind -eq 'Removal') { "$(& $e $Row.Before) &rarr; removed" } else { "$(& $e $Row.Before) &rarr; $(& $e $Row.NewValue)" }
         "<li><div><b>$(& $e $label)</b><code>$(& $e $Row.Name)</code></div><span>$value</span></li>"
     }
 

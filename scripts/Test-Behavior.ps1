@@ -1560,6 +1560,29 @@ try {
     Assert-TextContains -Text $profileReport -Expected '1 change would be made' -Context 'profile preferences report count'
     Assert-TextContains -Text $profileReport -Expected 'true &rarr; false' -Context 'profile preferences report value'
 
+    # JSON null and object values must show as JSON, not as an empty string or a PowerShell type name.
+    foreach ($priorCase in @(
+            @{ Json = '{"brave":{"rewards":{"enabled":null}}}'; Expected = 'null &rarr; false' },
+            @{ Json = '{"brave":{"rewards":{"enabled":{"a":1}}}}'; Expected = '{&quot;a&quot;:1} &rarr; false' }
+        )) {
+        [System.IO.File]::WriteAllText($reportPreferences, $priorCase.Json, $utf8NoBom)
+        & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -IncludeProfilePreferences -ProfileRoot $reportProfileRoot -ReportPath $profileReportPath -NoOpenReport *>&1 | Out-Null
+        Assert-TextContains -Text ([System.IO.File]::ReadAllText($profileReportPath)) -Expected $priorCase.Expected -Context 'profile preferences report prior JSON value'
+    }
+
+    # Skipped profile cleanup must be visible in the standalone report, not only in console warnings.
+    [System.IO.File]::WriteAllText($reportPreferences, '{not json', $utf8NoBom)
+    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -IncludeProfilePreferences -ProfileRoot $reportProfileRoot -ReportPath $profileReportPath -NoOpenReport *>&1 | Out-Null
+    $skippedProfileReport = [System.IO.File]::ReadAllText($profileReportPath)
+    Assert-TextContains -Text $skippedProfileReport -Expected 'Invalid Preferences file.' -Context 'invalid profile file report row'
+    Assert-TextContains -Text $skippedProfileReport -Expected '1 skipped.' -Context 'invalid profile file report lead'
+    Assert-TextContains -Text $skippedProfileReport -Expected 'some cleanup skipped' -Context 'invalid profile file report footer'
+    $emptyProfileRoot = Join-Path $reportRoot 'EmptyProfileRoot'
+    New-Item -ItemType Directory -Path $emptyProfileRoot -Force | Out-Null
+    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -IncludeProfilePreferences -ProfileRoot $emptyProfileRoot -ReportPath $profileReportPath -NoOpenReport *>&1 | Out-Null
+    Assert-TextContains -Text ([System.IO.File]::ReadAllText($profileReportPath)) -Expected 'No Preferences files found.' -Context 'missing profile files report row'
+    [System.IO.File]::WriteAllText($reportPreferences, '{"brave":{"rewards":{"enabled":true}}}', $utf8NoBom)
+
     $applyReportPath = Join-Path $reportRoot 'applied.html'
     & $scriptPath -Platform Linux -OnlyFeature Rewards,Wallet -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $applyReportPath -NoOpenReport -Apply -Confirm:$false *>&1 | Out-Null
     $applyReport = [System.IO.File]::ReadAllText($applyReportPath)

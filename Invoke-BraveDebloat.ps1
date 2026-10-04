@@ -549,7 +549,7 @@ if ($reportRequested) {
                 'Shield baseline' = if ($LockShields) { 'Locked on by policy' } else { 'Not locked' }
                 'DNS over HTTPS' = if ($null -ne $dnsPlan) { $dnsPlan.Summary } else { 'Not managed' }
                 'Features' = if ($customFeatureRequested) { $selectedFeatureIds -join ', ' } else { 'Preset default' }
-                'Profile preferences' = if ($IncludeProfilePreferences) { "Included ($ProfileRoot)" } else { 'Not included' }
+                'Profile preferences' = if (-not $IncludeProfilePreferences) { 'Not included' } elseif (@($reportRows | Where-Object { $_.Kind -eq 'ProfileSkipped' }).Count -gt 0) { "Included ($ProfileRoot), some cleanup skipped" } else { "Included ($ProfileRoot)" }
                 'Backup' = if ($null -ne $backupPath) { $backupPath } elseif ($applyChanges) { 'None (-NoBackup)' } else { 'Written on -Apply' }
             }
             $report = [pscustomobject]@{

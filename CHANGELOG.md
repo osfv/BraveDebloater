@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `-ReportPath <file.html>` saves a self-contained HTML report of a dry run or `-Apply` run: each policy's current and new value, run details, and the exact undo command with a Copy button.
+- `-ReportPath <file.html>` saves a self-contained HTML report of a dry run or `-Apply` run: each policy's current and new value, run details, and the exact undo command with a Copy button. Skipped profile cleanup (Brave running, no profile files, or an invalid `Preferences` file) is listed in the report, and prior profile values that are JSON `null` or objects are shown as JSON.
 - A weekly workflow compares Brave's latest policy templates with `config/policy-template-snapshot.json` and opens a pull request listing new, removed, and deprecated policies.
 - Policy template version recorded as 155.1.99.2.
 
