@@ -93,23 +93,35 @@ function Invoke-ProfilePreferenceCleanup {
         [string]$BackupPath,
         [string[]]$SelectedFeatureIds = @(),
         [switch]$UseFeatureFilter,
-        [switch]$DoApply
+        [switch]$DoApply,
+        [System.Collections.Generic.List[object]]$ReportRows
     )
+
+    # Skips must reach the report too, or a standalone report would hide that cleanup did not run.
+    $addSkippedRow = {
+        param($Label, $Name, $Reason)
+        if ($null -ne $ReportRows) {
+            [void]$ReportRows.Add([pscustomobject]@{ Kind = 'ProfileSkipped'; Name = $Name; Feature = $Label; Reason = $Reason; Before = ''; NewValue = ''; Status = 'Skipped' })
+        }
+    }
 
     if ([string]::IsNullOrWhiteSpace($Root)) {
         Write-Warning 'No Brave profile root is known for this platform, so profile preference cleanup was skipped. Pass -ProfileRoot with the Brave "User Data" folder, or omit -IncludeProfilePreferences.'
+        & $addSkippedRow 'Profile preferences' '(no profile root)' 'No Brave profile root is known; pass -ProfileRoot.'
         return
     }
 
     $files = @(Get-BraveProfilePreferenceFiles -Root $Root)
     if ($files.Count -eq 0) {
         Write-Warning "No Brave profile Preferences files were found under $Root. Profile preference cleanup was skipped. Check -ProfileRoot or -Channel if Brave is installed."
+        & $addSkippedRow 'Profile preferences' $Root 'No Preferences files found.'
         return
     }
 
     if (Test-BraveRunning) {
         if ($DoApply) {
             Write-Warning 'Brave is running, so profile preference cleanup was skipped. Close Brave, then rerun with -IncludeProfilePreferences -Apply.'
+            & $addSkippedRow 'Profile preferences' $Root 'Brave was running; close it and rerun.'
             return
         }
         Write-Step 'Note: Brave is running. Close it before adding -Apply, or profile preference cleanup will be skipped.'
@@ -132,6 +144,7 @@ function Invoke-ProfilePreferenceCleanup {
         }
 
         $json = $null
+        $profileLabel = "Profile $(Split-Path -Leaf (Split-Path -Parent $file))"
         try {
             $raw = Get-Utf8FileContent -Path $file
             if ([string]::IsNullOrWhiteSpace($raw)) {
@@ -141,20 +154,24 @@ function Invoke-ProfilePreferenceCleanup {
         }
         catch {
             Write-Warning "Skipping invalid profile Preferences file: $file ($($_.Exception.Message)) No changes were made to this file."
+            & $addSkippedRow $profileLabel $file 'Invalid Preferences file.'
             continue
         }
 
         if ($json -isnot [System.Management.Automation.PSCustomObject]) {
             Write-Warning "Skipping invalid profile Preferences file: $file (top-level value is not a JSON object). No changes were made to this file."
+            & $addSkippedRow $profileLabel $file 'Invalid Preferences file.'
             continue
         }
 
         if ($datesMayChange -and (Test-JsonValueContainsDate -Value $json)) {
             Write-Warning "Skipping profile Preferences file: $file (it contains date values that PowerShell $($PSVersionTable.PSVersion) would rewrite). No changes were made to this file. Rerun with PowerShell 7.5 or newer, or Windows PowerShell 5.1."
+            & $addSkippedRow $profileLabel $file 'Contains dates this PowerShell would rewrite.'
             continue
         }
 
         $changed = $false
+        $fileRows = New-Object System.Collections.Generic.List[object]
 
         foreach ($patch in $patches) {
             $path = [string]$patch.path
@@ -165,8 +182,18 @@ function Invoke-ProfilePreferenceCleanup {
             $current = Get-JsonPathResult -Object $json -Path $path
             $createMissing = [bool]$patch.createMissing
 
+            $beforeText = ''
+            $newText = ''
+            if ($null -ne $ReportRows) {
+                # Show non-string values as JSON so null, objects, and arrays stay visible in the report.
+                $formatValue = { param($Value) if ($null -eq $Value) { 'null' } elseif ($Value -is [string]) { $Value } else { ConvertTo-Json -InputObject $Value -Compress -Depth 100 } }
+                $beforeText = if ($current.exists) { & $formatValue $current.value } else { 'Not set' }
+                $newText = & $formatValue $patch.value
+            }
+            $newRow = { param($Before, $Status) [pscustomobject]@{ Kind = 'Profile'; Name = $path; Feature = $profileLabel; Reason = $file; Before = $Before; NewValue = $newText; Status = $Status } }
             if ($current.blocked) {
                 Write-Warning "Skipping $path in $file because a parent value is not a JSON object. This setting was not changed."
+                [void]$fileRows.Add((& $newRow 'Not an object' 'Skipped'))
                 continue
             }
             if (-not $current.exists -and -not $createMissing) {
@@ -178,6 +205,7 @@ function Invoke-ProfilePreferenceCleanup {
                 if (-not $DoApply) {
                     Write-DryRun "Already set: $path in $file. No change needed."
                 }
+                [void]$fileRows.Add((& $newRow $beforeText 'Already set'))
                 continue
             }
 
@@ -188,16 +216,20 @@ function Invoke-ProfilePreferenceCleanup {
                 else {
                     Write-DryRun "Would create $path in $file with '$($patch.value)'."
                 }
+                [void]$fileRows.Add((& $newRow $beforeText 'Would set'))
                 continue
             }
 
             if (Set-JsonPathValue -Object $json -Path $path -Value $patch.value -CreateMissing:$createMissing) {
                 $changed = $true
+                [void]$fileRows.Add((& $newRow $beforeText 'Pending'))
             }
         }
+        $pendingStatus = 'Set'
 
         if ($DoApply -and $changed -and -not $PSCmdlet.ShouldProcess($file, 'Update Brave profile preferences')) {
             Write-Step "Skipped profile preferences in $file. No changes were made to this file."
+            $pendingStatus = 'Skipped'
         }
         elseif ($DoApply -and $changed) {
             # Each backup gets its own folder under profile-files/ so a later apply run cannot
@@ -231,6 +263,14 @@ function Invoke-ProfilePreferenceCleanup {
         }
         elseif ($DoApply) {
             Write-Step "No profile preference changes needed in $file."
+        }
+        if ($null -ne $ReportRows) {
+            foreach ($row in $fileRows) {
+                if ($row.Status -eq 'Pending') {
+                    $row.Status = $pendingStatus
+                }
+                [void]$ReportRows.Add($row)
+            }
         }
     }
 }

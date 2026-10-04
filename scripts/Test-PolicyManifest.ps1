@@ -92,6 +92,57 @@ function Test-PolicyTemplateVersionUpdater {
     }
 }
 
+function Test-PolicyTemplateComparer {
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('BraveDebloaterTemplateCompare-{0}' -f [guid]::NewGuid().ToString('N'))
+    try {
+        New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+        $admx = '<policyDefinitions><policies>' +
+            '<policy name="Kept"><parentCategory ref="Brave"/></policy>' +
+            '<policy name="Kept_recommended"><parentCategory ref="Brave"/></policy>' +
+            '<policy name="BrandNew"><parentCategory ref="Brave"/></policy>' +
+            '<policy name="Revived"><parentCategory ref="Brave"/></policy>' +
+            '<policy name="BraveRewardsDisabled"><parentCategory ref="DeprecatedPolicies"/></policy>' +
+            '</policies></policyDefinitions>'
+        $zipPath = Join-Path $tempRoot 'template.zip'
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        # Windows PowerShell 5.1 CreateFromDirectory writes backslash entry names, so add entries by name.
+        $zip = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($entry in @(@{ Name = 'VERSION'; Text = "MAJOR=2`nMINOR=0`nBUILD=0`nPATCH=1" }, @{ Name = 'windows/admx/brave.admx'; Text = $admx })) {
+                $writer = New-Object System.IO.StreamWriter($zip.CreateEntry($entry.Name).Open())
+                try { $writer.Write($entry.Text) } finally { $writer.Dispose() }
+            }
+        }
+        finally {
+            $zip.Dispose()
+        }
+
+        $snapshotPath = Join-Path $tempRoot 'snapshot.json'
+        Set-Content -LiteralPath $snapshotPath -Value '{"templateVersion":"1.0.0.0","policies":["Kept","Gone","BraveRewardsDisabled"],"deprecatedPolicies":["Revived"]}' -Encoding UTF8
+        $summaryPath = Join-Path $tempRoot 'summary.md'
+        & (Join-Path $root 'scripts/Compare-PolicyTemplates.ps1') -TemplateZipPath $zipPath -SnapshotPath $snapshotPath -SummaryPath $summaryPath -Update *> $null
+
+        $summary = [System.IO.File]::ReadAllText($summaryPath)
+        foreach ($expected in @('1.0.0.0 -> 2.0.0.1', '### New policies (1)', '- `BrandNew`', '### Removed policies (1)', '- `Gone`', '### Newly deprecated policies (1)', '- `BraveRewardsDisabled` (managed by BraveDebloater)', '### No longer deprecated policies (1)', '- `Revived`', '**Action needed:**')) {
+            if (-not $summary.Contains($expected)) {
+                throw "Compare-PolicyTemplates.ps1 summary is missing '$expected'."
+            }
+        }
+        if ($summary.Contains('Kept_recommended')) {
+            throw 'Compare-PolicyTemplates.ps1 listed a _recommended duplicate policy.'
+        }
+        $updated = Get-Content -LiteralPath $snapshotPath -Raw | ConvertFrom-Json
+        if ([string]$updated.templateVersion -ne '2.0.0.1' -or (@($updated.policies) -join ',') -ne 'BrandNew,Kept,Revived' -or (@($updated.deprecatedPolicies) -join ',') -ne 'BraveRewardsDisabled') {
+            throw 'Compare-PolicyTemplates.ps1 -Update did not record the new snapshot.'
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
+    }
+}
+
 if (-not (Test-Path -LiteralPath $manifestPath)) {
     throw "Missing manifest: $manifestPath"
 }
@@ -294,5 +345,6 @@ foreach ($scriptFile in $scriptFiles) {
 }
 
 Test-PolicyTemplateVersionUpdater
+Test-PolicyTemplateComparer
 
 Write-Host 'Policy manifest and PowerShell syntax checks passed.'

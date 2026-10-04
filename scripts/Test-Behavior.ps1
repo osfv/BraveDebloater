@@ -779,7 +779,7 @@ try {
 
     $versionOutput = (& $scriptPath -Version *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $versionOutput -Expected 'BraveDebloater 0.7.0' -Context '-Version output'
-    Assert-TextContains -Text $versionOutput -Expected 'Policy template version: 153.1.97.22' -Context '-Version output'
+    Assert-TextContains -Text $versionOutput -Expected "Policy template version: $((Get-Content -LiteralPath (Join-Path $root 'config/policies.json') -Raw | ConvertFrom-Json).policyTemplateVersion)" -Context '-Version output'
     Assert-TextContains -Text $versionOutput -Expected 'PowerShell: ' -Context '-Version output'
     Assert-TextDoesNotContain -Text $versionOutput -Unexpected '[dry-run]' -Context '-Version output'
 
@@ -1616,6 +1616,107 @@ try {
     if (@(Get-ChildItem -LiteralPath $tempRoot -Filter 'whatif-backup*').Count -gt 0) {
         throw 'Profile cleanup created a profile backup even though ShouldProcess declined the change.'
     }
+
+    $reportRoot = Join-Path $tempRoot 'Report & Run'
+    New-Item -ItemType Directory -Path $reportRoot -Force | Out-Null
+    $reportPolicyPath = Join-Path $reportRoot 'policy.json'
+    [System.IO.File]::WriteAllText($reportPolicyPath, '{"BraveRewardsDisabled": true}', $utf8NoBom)
+    $reportBackupDirectory = Join-Path $reportRoot 'backups'
+    $dryRunReportPath = Join-Path $reportRoot 'dry-run.html'
+    $dryRunReportOutput = (& $scriptPath -Platform Linux -OnlyFeature Rewards,Wallet -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $dryRunReportPath -NoOpenReport *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dryRunReportOutput -Expected 'Report written to' -Context '-ReportPath dry-run output'
+    $dryRunReport = [System.IO.File]::ReadAllText($dryRunReportPath)
+    Assert-TextContains -Text $dryRunReport -Expected 'Dry run' -Context 'dry-run report'
+    Assert-TextContains -Text $dryRunReport -Expected 'data:image/png;base64,' -Context 'dry-run report logo'
+    Assert-TextContains -Text $dryRunReport -Expected '<code>BraveWalletDisabled</code>' -Context 'dry-run report'
+    Assert-TextContains -Text $dryRunReport -Expected '1 already set' -Context 'dry-run report'
+    Assert-TextContains -Text $dryRunReport -Expected 'Report &amp; Run' -Context 'dry-run report path escaping'
+    Assert-TextDoesNotContain -Text $dryRunReport -Unexpected 'Report & Run' -Context 'dry-run report path escaping'
+    if ([System.IO.File]::ReadAllText($reportPolicyPath) -ne '{"BraveRewardsDisabled": true}') {
+        throw '-ReportPath dry run changed the policy file.'
+    }
+    if (Test-Path -LiteralPath $reportBackupDirectory) {
+        throw '-ReportPath dry run created a backup directory.'
+    }
+
+    $whatIfReportPath = Join-Path $reportRoot 'whatif.html'
+    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $whatIfReportPath -NoOpenReport -Apply -WhatIf *>&1 | Out-Null
+    if (Test-Path -LiteralPath $whatIfReportPath) {
+        throw '-ReportPath wrote a report under -WhatIf.'
+    }
+    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $whatIfReportPath -NoOpenReport -WhatIf *>&1 | Out-Null
+    if (Test-Path -LiteralPath $whatIfReportPath) {
+        throw '-ReportPath wrote a report under -WhatIf without -Apply.'
+    }
+
+    $reportProfileRoot = Join-Path $reportRoot 'ProfileRoot'
+    New-Item -ItemType Directory -Path (Join-Path $reportProfileRoot 'Default') -Force | Out-Null
+    $reportPreferences = Join-Path (Join-Path $reportProfileRoot 'Default') 'Preferences'
+    [System.IO.File]::WriteAllText($reportPreferences, '{"brave":{"rewards":{"enabled":true}}}', $utf8NoBom)
+    $profileReportPath = Join-Path $reportRoot 'profile.html'
+    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -IncludeProfilePreferences -ProfileRoot $reportProfileRoot -ReportPath $profileReportPath -NoOpenReport *>&1 | Out-Null
+    $profileReport = [System.IO.File]::ReadAllText($profileReportPath)
+    Assert-TextContains -Text $profileReport -Expected 'Profile Default' -Context 'profile preferences report'
+    Assert-TextContains -Text $profileReport -Expected '<code>brave.rewards.enabled</code>' -Context 'profile preferences report'
+    Assert-TextContains -Text $profileReport -Expected '1 change would be made' -Context 'profile preferences report count'
+    Assert-TextContains -Text $profileReport -Expected 'true &rarr; false' -Context 'profile preferences report value'
+
+    # JSON null and object values must show as JSON, not as an empty string or a PowerShell type name.
+    foreach ($priorCase in @(
+            @{ Json = '{"brave":{"rewards":{"enabled":null}}}'; Expected = 'null &rarr; false' },
+            @{ Json = '{"brave":{"rewards":{"enabled":{"a":1}}}}'; Expected = '{&quot;a&quot;:1} &rarr; false' }
+        )) {
+        [System.IO.File]::WriteAllText($reportPreferences, $priorCase.Json, $utf8NoBom)
+        & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -IncludeProfilePreferences -ProfileRoot $reportProfileRoot -ReportPath $profileReportPath -NoOpenReport *>&1 | Out-Null
+        Assert-TextContains -Text ([System.IO.File]::ReadAllText($profileReportPath)) -Expected $priorCase.Expected -Context 'profile preferences report prior JSON value'
+    }
+
+    # Skipped profile cleanup must be visible in the standalone report, not only in console warnings.
+    [System.IO.File]::WriteAllText($reportPreferences, '{not json', $utf8NoBom)
+    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -IncludeProfilePreferences -ProfileRoot $reportProfileRoot -ReportPath $profileReportPath -NoOpenReport *>&1 | Out-Null
+    $skippedProfileReport = [System.IO.File]::ReadAllText($profileReportPath)
+    Assert-TextContains -Text $skippedProfileReport -Expected 'Invalid Preferences file.' -Context 'invalid profile file report row'
+    Assert-TextContains -Text $skippedProfileReport -Expected '1 skipped.' -Context 'invalid profile file report lead'
+    Assert-TextContains -Text $skippedProfileReport -Expected 'some cleanup skipped' -Context 'invalid profile file report footer'
+    $emptyProfileRoot = Join-Path $reportRoot 'EmptyProfileRoot'
+    New-Item -ItemType Directory -Path $emptyProfileRoot -Force | Out-Null
+    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -IncludeProfilePreferences -ProfileRoot $emptyProfileRoot -ReportPath $profileReportPath -NoOpenReport *>&1 | Out-Null
+    Assert-TextContains -Text ([System.IO.File]::ReadAllText($profileReportPath)) -Expected 'No Preferences files found.' -Context 'missing profile files report row'
+    [System.IO.File]::WriteAllText($reportPreferences, '{"brave":{"rewards":{"enabled":true}}}', $utf8NoBom)
+
+    $applyReportPath = Join-Path $reportRoot 'applied.html'
+    & $scriptPath -Platform Linux -OnlyFeature Rewards,Wallet -PolicyPath $reportPolicyPath -BackupDirectory $reportBackupDirectory -ReportPath $applyReportPath -NoOpenReport -Apply -Confirm:$false *>&1 | Out-Null
+    $applyReport = [System.IO.File]::ReadAllText($applyReportPath)
+    Assert-TextContains -Text $applyReport -Expected 'Applied' -Context 'apply report'
+    Assert-TextContains -Text $applyReport -Expected '-UndoFromBackup' -Context 'apply report undo command'
+    Assert-TextContains -Text $applyReport -Expected 'Invoke-BraveDebloat.ps1' -Context 'apply report undo command'
+    Assert-TextContains -Text $applyReport -Expected '2 changes were made' -Context 'apply report status'
+
+    foreach ($badReportCommand in @(
+            { & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -ReportPath (Join-Path $reportRoot 'report.txt') | Out-Null },
+            { & $scriptPath -Platform Linux -OnlyFeature Rewards -List -ReportPath (Join-Path $reportRoot 'list.html') | Out-Null }
+        )) {
+        $rejected = $false
+        try { & $badReportCommand *>&1 | Out-Null } catch { $rejected = $true }
+        if (-not $rejected) {
+            throw '-ReportPath accepted a non-HTML path or a non-run mode.'
+        }
+    }
+
+    function Test-RunReportEscaping {
+        . (Join-Path $root 'src/Reports.ps1')
+        $html = ConvertTo-RunReportHtml -Report ([pscustomobject]@{
+                Mode = 'Apply'; ToolVersion = '0.0.0'; GeneratedAt = 'now'; LogoDataUri = $null; Details = [ordered]@{ 'Target' = '<b>x</b>' }
+                Rows = @([pscustomobject]@{ Kind = 'Policy'; Name = '<script>alert(1)</script>'; Feature = ''; Reason = '"quoted"'; Before = '<i>old</i>'; NewValue = '1'; Status = 'Set' })
+                UndoCommand = ".\Invoke-BraveDebloat.ps1 -UndoFromBackup 'C:\a&b\x.json' -Apply"; UndoText = ''
+            })
+        Assert-TextDoesNotContain -Text $html -Unexpected '<script>alert(1)</script>' -Context 'report escaping'
+        Assert-TextDoesNotContain -Text $html -Unexpected '<b>x</b>' -Context 'report escaping'
+        Assert-TextContains -Text $html -Expected '&lt;script&gt;alert(1)&lt;/script&gt;' -Context 'report escaping'
+        Assert-TextContains -Text $html -Expected 'C:\a&amp;b\x.json' -Context 'report undo escaping'
+        Assert-TextDoesNotContain -Text $html -Unexpected '<i>old</i>' -Context 'report value escaping'
+    }
+    Test-RunReportEscaping
 
     & (Join-Path $root 'tests/WriteSafety.ps1') -TempRoot (Join-Path $tempRoot 'WriteSafety')
     Write-Host 'Behavior checks passed.'
