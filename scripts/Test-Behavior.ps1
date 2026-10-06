@@ -69,6 +69,39 @@ try {
     Assert-TextDoesNotContain -Text $doctorOutput -Unexpected '[dry-run]' -Context '-Doctor output'
     Assert-TextDoesNotContain -Text $doctorOutput -Unexpected 'Would set' -Context '-Doctor output'
 
+    Assert-TextContains -Text $doctorOutput -Expected 'DNS over HTTPS:' -Context '-Doctor output'
+
+    $dnsDoctorDirectory = Join-Path $tempRoot 'DnsDoctor'
+    New-Item -ItemType Directory -Path $dnsDoctorDirectory -Force | Out-Null
+    $dnsDoctorWithoutPath = Join-Path $dnsDoctorDirectory 'without-policies.json'
+    $dnsDoctorWithPath = Join-Path $dnsDoctorDirectory 'with-policies.json'
+    $dnsDoctorModeOnlyPath = Join-Path $dnsDoctorDirectory 'mode-only.json'
+    '{}' | Set-Content -LiteralPath $dnsDoctorWithoutPath -Encoding UTF8
+    [ordered]@{
+        DnsOverHttpsMode = 'secure'
+        DnsOverHttpsTemplates = 'https://dns.quad9.net/dns-query'
+    } | ConvertTo-Json | Set-Content -LiteralPath $dnsDoctorWithPath -Encoding UTF8
+    [ordered]@{
+        DnsOverHttpsMode = 'off'
+    } | ConvertTo-Json | Set-Content -LiteralPath $dnsDoctorModeOnlyPath -Encoding UTF8
+
+    $dnsDoctorWithoutOutput = (& $scriptPath -Doctor -Platform Linux -PolicyPath $dnsDoctorWithoutPath -ProfileRoot $missingProfileRoot -BackupDirectory $doctorBackupDirectory *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsDoctorWithoutOutput -Expected 'DNS over HTTPS: not managed' -Context 'Doctor target without DNS policies'
+    Assert-TextDoesNotContain -Text $dnsDoctorWithoutOutput -Unexpected 'Would set' -Context 'Doctor target without DNS policies'
+    Assert-TextDoesNotContain -Text $dnsDoctorWithoutOutput -Unexpected '[dry-run]' -Context 'Doctor target without DNS policies'
+
+    $dnsDoctorWithOutput = (& $scriptPath -Doctor -Platform Linux -PolicyPath $dnsDoctorWithPath -ProfileRoot $missingProfileRoot -BackupDirectory $doctorBackupDirectory *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsDoctorWithOutput -Expected 'DNS over HTTPS: secure (https://dns.quad9.net/dns-query)' -Context 'Doctor target with DNS policies'
+    Assert-TextDoesNotContain -Text $dnsDoctorWithOutput -Unexpected 'DNS over HTTPS: not managed' -Context 'Doctor target with DNS policies'
+    Assert-TextDoesNotContain -Text $dnsDoctorWithOutput -Unexpected 'Would set' -Context 'Doctor target with DNS policies'
+    $dnsDoctorWithJson = Get-Content -LiteralPath $dnsDoctorWithPath -Raw | ConvertFrom-Json
+    if ([string]$dnsDoctorWithJson.DnsOverHttpsMode -ne 'secure' -or [string]$dnsDoctorWithJson.DnsOverHttpsTemplates -ne 'https://dns.quad9.net/dns-query') {
+        throw 'Doctor read changed the DNS policy target.'
+    }
+
+    $dnsDoctorModeOnlyOutput = (& $scriptPath -Doctor -Platform Linux -PolicyPath $dnsDoctorModeOnlyPath -ProfileRoot $missingProfileRoot -BackupDirectory $doctorBackupDirectory *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $dnsDoctorModeOnlyOutput -Expected 'DNS over HTTPS: off' -Context 'Doctor target with DNS mode and no resolver'
+
     $doctorApplyBackupDirectory = Join-Path $tempRoot 'DoctorApplyBackups'
     $doctorApplyOutput = (& $scriptPath -Doctor -Apply -ProfileRoot $missingProfileRoot -BackupDirectory $doctorApplyBackupDirectory *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $doctorApplyOutput -Expected '-Doctor is read-only. -Apply was ignored. No policy, backup, or profile files will be changed.' -Context '-Doctor -Apply output'
