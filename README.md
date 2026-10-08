@@ -1,6 +1,8 @@
 <p align="center">
-  <img src="assets/icons/debloater.png" alt="BraveDebloater" width="180" />
+  <img src="assets/icons/debloater.png" alt="BraveDebloater" width="180" /> 
 </p>
+
+`Not affiliated with or endorsed by Brave Software`
 
 # BraveDebloater <a href="https://www.producthunt.com/products/bravedebloater?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-bravedebloater" target="_blank" rel="noopener noreferrer"><img alt="BraveDebloater - A safer, reversible debloater for Brave Browser | Product Hunt" width="200" height="48" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1254570&amp;theme=dark&amp;t=1789727875338"></a>
 
