@@ -339,7 +339,7 @@ When `-IncludeProfilePreferences` is combined with custom feature choices, profi
 
 Use `-Doctor` when you want to inspect Brave without changing anything.
 
-It checks policy locations, detected feature status, unknown Brave policies, protected policy names, Brave process state, profile preference files, and backups.
+It checks policy locations, detected feature status, DNS-over-HTTPS mode and resolver, unknown Brave policies, protected policy names, Brave process state, profile preference files, and backups. DNS is printed as one line: `DNS over HTTPS: <mode> (<resolver>)`, or `DNS over HTTPS: not managed` when those policies are absent.
 
 This helps after testing other debloat tools. Machine-wide policies can make Brave settings appear managed for every Windows user, even when current-user policies look empty.
 

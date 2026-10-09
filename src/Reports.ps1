@@ -71,6 +71,79 @@ function Show-VersionInfo {
     Write-Host "PowerShell: $($PSVersionTable.PSVersion) ($edition) on $PlatformName"
 }
 
+function Get-DnsOverHttpsStatusText {
+    param(
+        [Parameter(Mandatory = $true)]$Target
+    )
+
+    # -Doctor must read the DNS policies added in 0.4.0, not only feature toggles.
+    # Get-PolicyValue covers registry, Linux JSON, and macOS defaults/plist targets.
+    $modeValue = Get-PolicyValue -Target $Target -Name 'DnsOverHttpsMode'
+    $templateValue = Get-PolicyValue -Target $Target -Name 'DnsOverHttpsTemplates'
+    if ($modeValue.ReadError -or $templateValue.ReadError) {
+        $failed = if ($modeValue.ReadError) { $modeValue } else { $templateValue }
+        $detail = Get-PolicyValueErrorMessage -Value $failed
+        if ([string]::IsNullOrWhiteSpace($detail)) {
+            return 'could not be read'
+        }
+        return "could not be read ($detail)"
+    }
+
+    $mode = ''
+    if ($modeValue.Exists -and $null -ne $modeValue.Value) {
+        $mode = ([string]$modeValue.Value).Trim()
+    }
+    $resolver = ''
+    if ($templateValue.Exists -and $null -ne $templateValue.Value) {
+        if ($templateValue.Value -is [System.Array]) {
+            $resolver = ((@($templateValue.Value) | ForEach-Object { [string]$_ }) -join ' ').Trim()
+        }
+        else {
+            $resolver = ([string]$templateValue.Value).Trim()
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($mode) -and [string]::IsNullOrWhiteSpace($resolver)) {
+        return 'not managed'
+    }
+    if ([string]::IsNullOrWhiteSpace($mode)) {
+        return "not managed ($resolver)"
+    }
+    if ([string]::IsNullOrWhiteSpace($resolver)) {
+        return $mode
+    }
+    return "$mode ($resolver)"
+}
+
+function Write-DnsOverHttpsDoctorStatus {
+    param(
+        [Parameter(Mandatory = $true)]$CurrentUserTarget,
+        [Parameter(Mandatory = $true)]$LocalMachineTarget
+    )
+
+    $items = @(
+        [pscustomobject]@{ Scope = 'CurrentUser'; Target = $CurrentUserTarget },
+        [pscustomobject]@{ Scope = 'LocalMachine'; Target = $LocalMachineTarget }
+    )
+    # -PolicyPath selects one file on Linux and macOS LocalMachine. Both scopes resolve to
+    # that file, so report the selected target once instead of printing the same line twice.
+    if ($CurrentUserTarget.Kind -ne 'Registry' -and $CurrentUserTarget.Path -eq $LocalMachineTarget.Path) {
+        $items = @([pscustomobject]@{ Scope = 'LocalMachine'; Target = $LocalMachineTarget })
+    }
+
+    $statuses = @($items | ForEach-Object { Get-DnsOverHttpsStatusText -Target $_.Target })
+    $unique = @($statuses | Select-Object -Unique)
+    if ($items.Count -eq 1 -or $unique.Count -eq 1) {
+        Write-Step "DNS over HTTPS: $($statuses[0])"
+        return
+    }
+
+    $parts = for ($index = 0; $index -lt $items.Count; $index++) {
+        "$($items[$index].Scope) $($statuses[$index])"
+    }
+    Write-Step ("DNS over HTTPS: " + ($parts -join '; '))
+}
+
 function Show-DoctorReport {
     param(
         [Parameter(Mandatory = $true)]$Manifest,
@@ -203,6 +276,8 @@ function Show-DoctorReport {
         }
     }
     $featureRows | Format-Table -AutoSize -Wrap
+
+    Write-DnsOverHttpsDoctorStatus -CurrentUserTarget $currentUserTarget -LocalMachineTarget $localMachineTarget
 
     $deprecatedPolicyNames = @(Get-DeprecatedPolicyNames -Manifest $Manifest)
     $obsoleteRows = New-Object System.Collections.Generic.List[object]
