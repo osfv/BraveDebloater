@@ -1,5 +1,5 @@
 {
-  "templateVersion": "155.1.99.2",
+  "templateVersion": "156.1.99.33",
   "policies": [
     "AIModeSettings",
     "AbusiveExperienceInterventionEnforce",
@@ -46,8 +46,7 @@
     "AutoOpenAllowedForURLs",
     "AutoOpenFileTypes",
     "AutoSelectCertificateForUrls",
-    "AutofillAddressEnabled",
-    "AutofillCreditCardEnabled",
+    "AutofillGenAiSettings",
     "AutofillPredictionSettings",
     "AutofillSettings",
     "AutomatedPasswordChangeSettings",
@@ -371,6 +370,7 @@
     "KeyboardFocusableScrollersEnabled",
     "KeygenAllowedForUrls",
     "KeygenBlockedForUrls",
+    "LaunchOnStartupEnabled",
     "LegacySameSiteCookieBehaviorEnabled",
     "LegacySameSiteCookieBehaviorEnabledForDomainList",
     "LiveCaptionEnabled",
@@ -677,6 +677,8 @@
   ],
   "deprecatedPolicies": [
     "AutoFillEnabled",
+    "AutofillAddressEnabled",
+    "AutofillCreditCardEnabled",
     "DefaultMediaStreamSetting",
     "DefaultWindowPlacementSetting",
     "DeveloperToolsDisabled",
