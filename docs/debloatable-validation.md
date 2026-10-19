@@ -11,7 +11,7 @@ Official sources used for this pass:
 
 Downloaded template evidence:
 
-- Template version: `156.1.99.33`
+- Template version: `156.1.100.5`
 - Archive `VERSION` entry timestamp: October 12, 2026
 - Checked files: `VERSION`, `windows/admx/brave.admx`, and `windows/admx/en-US/brave.adml`
 
@@ -19,7 +19,7 @@ Targeted Reddit, Brave Community, and GitHub searches did not produce a newer or
 
 ## What Changed
 
-The manifest version in `config/policies.json` changed from `155.1.99.2` to `156.1.99.33`. The new template deprecates `AutofillCreditCardEnabled` and `AutofillAddressEnabled`. The `Autofill` feature and Extreme/Aggressive presets now use `AutofillSettings` with this rule:
+The manifest version in `config/policies.json` changed from `155.1.99.2` to `156.1.100.5`. The new template deprecates `AutofillCreditCardEnabled` and `AutofillAddressEnabled`. The `Autofill` feature and Extreme/Aggressive presets now use `AutofillSettings` with this rule:
 
 ```json
 [{"url_pattern":"*","blocked_types":["contact_info","payments"]}]
