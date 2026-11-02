@@ -11,8 +11,8 @@ Official sources used for this pass:
 
 Downloaded template evidence:
 
-- Template version: `156.1.100.5`
-- Archive `VERSION` entry timestamp: October 15, 2026
+- Template version: `157.1.101.8`
+- Archive `VERSION` entry timestamp: October 30, 2026
 - Checked files: `VERSION`, `windows/admx/brave.admx`, and `windows/admx/en-US/brave.adml`
 
 Targeted Reddit, Brave Community, and GitHub searches did not produce a newer or more authoritative debloatable-policy source than Brave's Help Center and template zip.
