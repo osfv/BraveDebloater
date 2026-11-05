@@ -79,6 +79,13 @@ function Get-FullFileSystemPath {
     }
 }
 
+function Get-FileSystemPathComparison {
+    if ([System.IO.Path]::DirectorySeparatorChar -eq [char]'\') {
+        return [StringComparison]::OrdinalIgnoreCase
+    }
+    return [StringComparison]::Ordinal
+}
+
 function Test-PathIsUnderDirectory {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -93,7 +100,7 @@ function Test-PathIsUnderDirectory {
         $fullDirectory = "$fullDirectory$separator"
     }
 
-    return $fullPath.StartsWith($fullDirectory, [StringComparison]::OrdinalIgnoreCase)
+    return $fullPath.StartsWith($fullDirectory, (Get-FileSystemPathComparison))
 }
 
 function Get-RequiredPropertyValue {

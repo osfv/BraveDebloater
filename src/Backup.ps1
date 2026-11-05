@@ -11,8 +11,6 @@ function Assert-BackupRegistryPath {
     $allowedPaths = @(
         'Registry::HKEY_CURRENT_USER\Software\Policies\BraveSoftware\Brave',
         'Registry::HKEY_LOCAL_MACHINE\Software\Policies\BraveSoftware\Brave',
-        '/etc/brave/policies/managed/BraveDebloater.json',
-        '/Library/Managed Preferences/com.brave.Browser.plist',
         'com.brave.Browser'
     )
 
@@ -31,7 +29,8 @@ function Assert-BackupRegistryPath {
         }
     }
 
-    if (-not $isTargetUserPolicyPath -and $allowedPaths -notcontains $RegistryPath -and -not (Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath $AllowedPolicyPath)) {
+    $isDefaultFilePath = (Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath '/etc/brave/policies/managed/BraveDebloater.json') -or (Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath '/Library/Managed Preferences/com.brave.Browser.plist')
+    if (-not $isTargetUserPolicyPath -and $allowedPaths -notcontains $RegistryPath -and -not $isDefaultFilePath -and -not (Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath $AllowedPolicyPath)) {
         throw "Backup contains untrusted registry path '$RegistryPath'. Restore stopped before writing anything."
     }
 
@@ -39,7 +38,7 @@ function Assert-BackupRegistryPath {
         throw 'Restoring a LocalMachine backup needs an elevated PowerShell session. Reopen PowerShell as administrator/root, then rerun the restore command.'
     }
 
-    if ($DoApply -and $RegistryPath -eq '/etc/brave/policies/managed/BraveDebloater.json' -and -not (Test-IsAdministrator)) {
+    if ($DoApply -and (Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath '/etc/brave/policies/managed/BraveDebloater.json') -and -not (Test-IsAdministrator)) {
         throw "Restoring the Linux managed policy file '$RegistryPath' needs root. Rerun the restore command with sudo."
     }
 
@@ -52,7 +51,7 @@ function Assert-BackupRegistryPath {
         }
     }
 
-    if ($DoApply -and $RegistryPath -eq '/Library/Managed Preferences/com.brave.Browser.plist' -and -not (Test-IsAdministrator)) {
+    if ($DoApply -and (Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath '/Library/Managed Preferences/com.brave.Browser.plist') -and -not (Test-IsAdministrator)) {
         throw "Restoring a macOS managed-preferences backup writes to '$RegistryPath' and needs root. Rerun the restore command with sudo."
     }
 }
@@ -73,7 +72,7 @@ function Test-AllowedPolicyPathMatches {
     }
 
     try {
-        return ((Get-FullFileSystemPath -Path $RegistryPath) -eq (Get-FullFileSystemPath -Path $AllowedPolicyPath))
+        return [string]::Equals((Get-FullFileSystemPath -Path $RegistryPath), (Get-FullFileSystemPath -Path $AllowedPolicyPath), (Get-FileSystemPathComparison))
     }
     catch {
         return $false
@@ -99,8 +98,8 @@ function Assert-BackupPolicyKind {
     $overrideMatches = Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath $AllowedPolicyPath
     $consistent = switch ($kind) {
         'Registry' { $RegistryPath -like 'Registry::HKEY_*' }
-        'JsonFile' { (Test-ManagedPolicyPath -Path $RegistryPath) -and ($RegistryPath -eq '/etc/brave/policies/managed/BraveDebloater.json' -or $overrideMatches) }
-        'MacOSPlist' { (Test-ManagedPolicyPath -Path $RegistryPath) -and ($RegistryPath -eq '/Library/Managed Preferences/com.brave.Browser.plist' -or $overrideMatches) }
+        'JsonFile' { (Test-ManagedPolicyPath -Path $RegistryPath) -and ((Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath '/etc/brave/policies/managed/BraveDebloater.json') -or $overrideMatches) }
+        'MacOSPlist' { (Test-ManagedPolicyPath -Path $RegistryPath) -and ((Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath '/Library/Managed Preferences/com.brave.Browser.plist') -or $overrideMatches) }
         'MacOSDefaults' { $RegistryPath -eq 'com.brave.Browser' }
         default { throw "Backup has unsupported policy kind '$kind'. Restore stopped before writing anything." }
     }
@@ -189,7 +188,7 @@ function Assert-BackupProfileFile {
     if (-not (Test-PathIsUnderDirectory -Path $target -Directory $ProfileRoot)) {
         throw "Backup profile target is outside the selected profile root: $target"
     }
-    if ((Split-Path -Leaf $target) -ne 'Preferences') {
+    if (-not [string]::Equals((Split-Path -Leaf $target), 'Preferences', (Get-FileSystemPathComparison))) {
         throw "Backup profile target is not a Brave Preferences file: $target"
     }
 }
@@ -605,6 +604,10 @@ function Restore-RegistryBackup {
         Platform = if ($backup.PSObject.Properties['platform']) { [string]$backup.platform } else { 'Windows' }
         Kind = if ($backup.PSObject.Properties['policyKind']) { [string]$backup.policyKind } else { 'Registry' }
         Path = [string]$backup.registryPath
+    }
+
+    if ($policyTarget.Kind -in @('JsonFile', 'MacOSPlist')) {
+        $policyTarget.Path = Get-FullFileSystemPath -Path $policyTarget.Path
     }
 
     $profileFiles = @()
