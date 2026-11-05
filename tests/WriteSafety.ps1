@@ -79,6 +79,61 @@ foreach ($file in $backup.profileFiles) {
 Restore-RegistryBackup -BackupPath $backupPath -Manifest $manifest -ProfileRoot $profileRoot -AllowedPolicyPath $policyPath -DoApply *> $null
 if ((Get-Utf8FileContent -Path $firstProfile) -cne $original) { throw 'Interrupted cleanup could not be restored.' }
 
+# Restore passes the validated absolute file path to both policy writers, but leaves defaults domains unchanged.
+function Test-RestorePolicyTarget {
+    param([string]$Kind, [string]$RecordedPath, [string]$AllowedPath, [string]$ExpectedPath, [switch]$SimulateManagedPlist)
+
+    $resolver = (Get-Command Get-FullFileSystemPath).ScriptBlock
+    function Get-FullFileSystemPath {
+        param([string]$Path)
+        if ($SimulateManagedPlist -and $Path -in @('com.brave.Browser.plist', '/Library/Managed Preferences/com.brave.Browser.plist')) {
+            return '/Library/Managed Preferences/com.brave.Browser.plist'
+        }
+        & $resolver -Path $Path
+    }
+    function Resolve-PlatformName { param([string]$Name) return 'macOS' }
+    function Test-IsAdministrator { return $true }
+    $writes = New-Object System.Collections.Generic.List[object]
+    function Set-PolicyValue { param($Target, $Name, $Definition) [void]$writes.Add(@{ Operation = 'set'; Path = $Target.Path }) }
+    function Remove-PolicyValue { param($Target, $Name) [void]$writes.Add(@{ Operation = 'remove'; Path = $Target.Path }) }
+
+    $restorePath = Join-Path $TempRoot 'relative-target-backup.json'
+    $restoreBackup = [ordered]@{
+        schemaVersion = 1
+        platform = 'macOS'
+        policyKind = $Kind
+        registryPath = $RecordedPath
+        policies = @(
+            @{ name = 'BraveRewardsDisabled'; existed = $true; kind = 'DWord'; value = 1 },
+            @{ name = 'BraveWalletDisabled'; existed = $false }
+        )
+        profileFiles = @()
+    }
+    Set-JsonFileContent -Path $restorePath -Object $restoreBackup
+    Restore-RegistryBackup -BackupPath $restorePath -Manifest $manifest -AllowedPolicyPath $AllowedPath *> $null
+    if ($writes.Count -ne 0) { throw 'Restore preview called a policy writer.' }
+    Restore-RegistryBackup -BackupPath $restorePath -Manifest $manifest -AllowedPolicyPath $AllowedPath -DoApply *> $null
+    if ($writes.Count -ne 2 -or $writes[0].Operation -ne 'set' -or $writes[1].Operation -ne 'remove') {
+        throw 'Restore did not call both policy writers.'
+    }
+    foreach ($write in $writes) {
+        if ($write.Path -cne $ExpectedPath) { throw "Restore $($write.Operation) used '$($write.Path)' instead of '$ExpectedPath'." }
+    }
+}
+
+$relativeTargetDirectory = Join-Path $TempRoot 'relative-target'
+New-DirectoryLiteral -Path $relativeTargetDirectory
+Push-Location -LiteralPath $relativeTargetDirectory
+try {
+    $plistPath = Join-Path $relativeTargetDirectory 'custom.plist'
+    Test-RestorePolicyTarget -Kind MacOSPlist -RecordedPath 'custom.plist' -AllowedPath $plistPath -ExpectedPath $plistPath
+    Test-RestorePolicyTarget -Kind MacOSPlist -RecordedPath 'com.brave.Browser.plist' -ExpectedPath '/Library/Managed Preferences/com.brave.Browser.plist' -SimulateManagedPlist
+    $jsonPath = Join-Path $relativeTargetDirectory 'custom.json'
+    Test-RestorePolicyTarget -Kind JsonFile -RecordedPath 'custom.json' -AllowedPath $jsonPath -ExpectedPath $jsonPath
+    Test-RestorePolicyTarget -Kind MacOSDefaults -RecordedPath 'com.brave.Browser' -ExpectedPath 'com.brave.Browser'
+}
+finally { Pop-Location }
+
 # Restore must not treat differently cased sibling paths as trusted on case-sensitive systems.
 if ((Get-Variable -Name IsLinux -Scope Global -ErrorAction SilentlyContinue) -and $IsLinux) {
     $outsideProfile = Join-Path (Join-Path $TempRoot 'profiles') 'Default/Preferences'

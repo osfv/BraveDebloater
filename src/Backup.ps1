@@ -606,6 +606,10 @@ function Restore-RegistryBackup {
         Path = [string]$backup.registryPath
     }
 
+    if ($policyTarget.Kind -in @('JsonFile', 'MacOSPlist')) {
+        $policyTarget.Path = Get-FullFileSystemPath -Path $policyTarget.Path
+    }
+
     $profileFiles = @()
     if ($null -ne $backup.PSObject.Properties['profileFiles']) {
         $profileFiles = @($backup.profileFiles)
