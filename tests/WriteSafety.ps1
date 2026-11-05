@@ -79,6 +79,53 @@ foreach ($file in $backup.profileFiles) {
 Restore-RegistryBackup -BackupPath $backupPath -Manifest $manifest -ProfileRoot $profileRoot -AllowedPolicyPath $policyPath -DoApply *> $null
 if ((Get-Utf8FileContent -Path $firstProfile) -cne $original) { throw 'Interrupted cleanup could not be restored.' }
 
+# Restore must not treat differently cased sibling paths as trusted on case-sensitive systems.
+if ((Get-Variable -Name IsLinux -Scope Global -ErrorAction SilentlyContinue) -and $IsLinux) {
+    $outsideProfile = Join-Path (Join-Path $TempRoot 'profiles') 'Default/Preferences'
+    $outsidePolicy = Join-Path $TempRoot 'Policies.json'
+    $outsideBackup = Join-Path (Join-Path (Split-Path -Parent $backupPath) 'PROFILE-FILES') 'copy.bak'
+    Set-TextFileContent -Path $outsideProfile -Content 'outside profile'
+    Set-TextFileContent -Path $outsidePolicy -Content '{"BraveRewardsDisabled":false}'
+    Set-TextFileContent -Path $outsideBackup -Content $original
+    Set-TextFileContent -Path $policyPath -Content '{"BraveRewardsDisabled":true}'
+
+    foreach ($case in @(
+        @{ Field = 'originalPath'; Path = $outsideProfile; Error = 'Backup profile target is outside the selected profile root:*' },
+        @{ Field = 'backupPath'; Path = $outsideBackup; Error = 'Backup profile source is outside the expected backup folder:*' },
+        @{ Field = 'originalPath'; Path = (Join-Path $profileRoot 'Default/preferences'); Error = 'Backup profile target is not a Brave Preferences file:*' },
+        @{ Field = 'registryPath'; Path = $outsidePolicy; Error = 'Backup contains untrusted registry path*' }
+    )) {
+        $tamperedBackup = Get-JsonFileContent -Path $backupPath
+        if ($case.Field -eq 'registryPath') { $tamperedBackup.registryPath = $case.Path }
+        else { $tamperedBackup.profileFiles[0].($case.Field) = $case.Path }
+        $tamperedPath = Join-Path (Split-Path -Parent $backupPath) 'case-tampered.json'
+        Set-JsonFileContent -Path $tamperedPath -Object $tamperedBackup
+        foreach ($apply in @($false, $true)) {
+            $failure = ''
+            try { Restore-RegistryBackup -BackupPath $tamperedPath -Manifest $manifest -ProfileRoot $profileRoot -AllowedPolicyPath $policyPath -DoApply:$apply *> $null }
+            catch { $failure = $_.Exception.Message }
+            if ($failure -notlike $case.Error) { throw "Case-mismatched $($case.Field) was not rejected: $failure" }
+            if ((Get-Utf8FileContent -Path $policyPath) -cne '{"BraveRewardsDisabled":true}' -or
+                (Get-Utf8FileContent -Path $outsideProfile) -cne 'outside profile' -or
+                (Get-Utf8FileContent -Path $outsidePolicy) -cne '{"BraveRewardsDisabled":false}') {
+                throw 'Rejected restore changed a policy or profile file.'
+            }
+        }
+    }
+    $failure = ''
+    try { Assert-BackupRegistryPath -RegistryPath '/etc/BRAVE/policies/managed/BraveDebloater.json' }
+    catch { $failure = $_.Exception.Message }
+    if ($failure -notlike 'Backup contains untrusted registry path*') { throw 'Case-mismatched default policy path was not rejected.' }
+}
+elseif ([System.IO.Path]::DirectorySeparatorChar -eq [char]'\') {
+    if (-not (Test-PathIsUnderDirectory -Path ((Join-Path $profileRoot 'Default/Preferences').ToUpperInvariant()) -Directory $profileRoot)) {
+        throw 'Windows path containment rejected a case-only difference.'
+    }
+    if (-not (Test-AllowedPolicyPathMatches -RegistryPath ($policyPath.ToUpperInvariant()) -AllowedPolicyPath $policyPath)) {
+        throw 'Windows policy path comparison rejected a case-only difference.'
+    }
+}
+
 # A failed journal write must leave the profile untouched.
 function Invoke-UnrecordedCleanup {
     function Update-BackupProfileFiles { throw 'Injected backup record write failure' }
