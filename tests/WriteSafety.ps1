@@ -393,4 +393,36 @@ if ((Resolve-PlatformName -Name Auto) -eq 'macOS') {
     }
 }
 
+# Brave reads string policy values case-sensitively, so a differently cased value is not "already set".
+if (Test-PolicyValueMatches -ActualValue 'OFF' -ExpectedValue 'off' -Type String) { throw 'String policy comparison ignored case.' }
+if (-not (Test-PolicyValueMatches -ActualValue 'off' -ExpectedValue 'off' -Type String)) { throw 'String policy comparison rejected an equal value.' }
+
+if (Test-UnixFileModeSupported) {
+    # Rewriting a file must keep its permissions instead of resetting them to the umask default.
+    $modeDirectory = Join-Path $TempRoot 'unix-modes'
+    New-DirectoryLiteral -Path $modeDirectory
+    $privateFile = Join-Path $modeDirectory 'Preferences'
+    Set-TextFileContent -Path $privateFile -Content '{}'
+    [System.IO.File]::SetUnixFileMode($privateFile, [System.IO.UnixFileMode]384)
+    Set-TextFileContent -Path $privateFile -Content '{"changed":true}'
+    if ([int][System.IO.File]::GetUnixFileMode($privateFile) -ne 384) { throw 'Rewriting a 0600 file changed its permissions.' }
+    if ((Get-Utf8FileContent -Path $privateFile) -cne '{"changed":true}') { throw 'Rewriting a 0600 file did not replace its content.' }
+
+    # The system policy file and the brave/policies/managed folders must be readable by the Brave user.
+    $outerDirectory = Join-Path $modeDirectory 'etc'
+    $managedDirectory = Join-Path (Join-Path (Join-Path $outerDirectory 'brave') 'policies') 'managed'
+    New-DirectoryLiteral -Path $managedDirectory
+    $managedFile = Join-Path $managedDirectory 'BraveDebloater.json'
+    Set-TextFileContent -Path $managedFile -Content '{}'
+    [System.IO.File]::SetUnixFileMode($managedFile, [System.IO.UnixFileMode]384)
+    $restrictedDirectories = @($managedDirectory, (Split-Path -Parent $managedDirectory), (Split-Path -Parent (Split-Path -Parent $managedDirectory)), $outerDirectory)
+    foreach ($directory in $restrictedDirectories) { [System.IO.File]::SetUnixFileMode($directory, [System.IO.UnixFileMode]448) }
+    Grant-ManagedPolicyReadAccess -Path $managedFile
+    if ([int][System.IO.File]::GetUnixFileMode($managedFile) -ne 420) { throw 'The managed policy file was not made readable.' }
+    foreach ($directory in $restrictedDirectories[0..2]) {
+        if ([int][System.IO.File]::GetUnixFileMode($directory) -ne 493) { throw "The managed policy folder was not made readable: $directory" }
+    }
+    if ([int][System.IO.File]::GetUnixFileMode($outerDirectory) -ne 448) { throw 'Read access was granted above the Brave policy folders.' }
+}
+
 Write-Host 'Write safety checks passed.'

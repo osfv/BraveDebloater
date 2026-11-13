@@ -212,12 +212,50 @@ function Set-TextFileContent {
     $tempPath = Join-Path $tempDirectory ('.{0}.tmp' -f [guid]::NewGuid().ToString('N'))
     try {
         [System.IO.File]::WriteAllText($tempPath, $Content, $Encoding)
+        Copy-UnixFileOwnerAndMode -SourcePath $fullPath -DestinationPath $tempPath
         Move-FileLiteral -SourcePath $tempPath -DestinationPath $fullPath
     }
     finally {
         if ([System.IO.File]::Exists($tempPath)) {
             [System.IO.File]::Delete($tempPath)
         }
+    }
+}
+
+function Test-UnixFileModeSupported {
+    # File.GetUnixFileMode needs .NET 7 (PowerShell 7.3 or newer) and a non-Windows host.
+    return ([System.IO.Path]::DirectorySeparatorChar -ne '\' -and $null -ne [System.IO.File].GetMethod('GetUnixFileMode', [type[]]@([string])))
+}
+
+function Copy-UnixFileOwnerAndMode {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+
+    # Replacing a file through a temp file would reset its permissions to the umask default and, under
+    # sudo, hand it to root: a 0600 Brave Preferences file would become a world-readable, root-owned one.
+    if (-not (Test-UnixFileModeSupported) -or -not [System.IO.File]::Exists($SourcePath)) {
+        return
+    }
+
+    try {
+        $sourceStat = (Get-Item -LiteralPath $SourcePath -Force).UnixStat
+        $destinationStat = (Get-Item -LiteralPath $DestinationPath -Force).UnixStat
+        if ($sourceStat.UserId -ne $destinationStat.UserId -or $sourceStat.GroupId -ne $destinationStat.GroupId) {
+            & chown "$($sourceStat.UserId):$($sourceStat.GroupId)" $DestinationPath 2>$null
+            $ownerCopied = $LASTEXITCODE -eq 0
+            $global:LASTEXITCODE = 0
+            if (-not $ownerCopied) {
+                # Keep the default mode: the original owner may need its "other" bits to read the new file.
+                return
+            }
+        }
+        [System.IO.File]::SetUnixFileMode($DestinationPath, [System.IO.File]::GetUnixFileMode($SourcePath))
+    }
+    catch {
+        # Best effort. The content swap must not fail because ownership or mode could not be copied.
+        return
     }
 }
 

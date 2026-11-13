@@ -524,7 +524,12 @@ function Open-RunReport {
             & /usr/bin/open $fullPath
         }
         elseif (($env:DISPLAY -or $env:WAYLAND_DISPLAY) -and (Get-Command xdg-open -ErrorAction SilentlyContinue)) {
-            Start-Process -FilePath 'xdg-open' -ArgumentList @($fullPath) | Out-Null
+            # Start-Process joins -ArgumentList with spaces, which would split a path that contains them.
+            $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $startInfo.FileName = 'xdg-open'
+            $startInfo.UseShellExecute = $false
+            [void]$startInfo.ArgumentList.Add($fullPath)
+            [void][System.Diagnostics.Process]::Start($startInfo)
         }
         else {
             return $false

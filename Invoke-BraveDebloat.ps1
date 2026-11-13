@@ -542,6 +542,9 @@ if ($reportRequested) {
                     $undoText = $undoHint
                 }
             }
+            elseif (-not $applyChanges -and $NoBackup) {
+                $undoText = 'Nothing to undo. With -NoBackup, the matching -Apply run writes no backup, so it will have no undo command.'
+            }
             $reportDetails = [ordered]@{
                 'Preset' = if ($onlyFeatureMode) { '(none - OnlyFeature mode)' } else { $Preset }
                 'Platform' = $platformName
@@ -552,7 +555,7 @@ if ($reportRequested) {
                 'DNS over HTTPS' = if ($null -ne $dnsPlan) { $dnsPlan.Summary } else { 'Not managed' }
                 'Features' = if ($customFeatureRequested) { $selectedFeatureIds -join ', ' } else { 'Preset default' }
                 'Profile preferences' = if (-not $IncludeProfilePreferences) { 'Not included' } elseif (@($reportRows | Where-Object { $_.Kind -eq 'ProfileSkipped' }).Count -gt 0) { "Included ($ProfileRoot), some cleanup skipped" } else { "Included ($ProfileRoot)" }
-                'Backup' = if ($null -ne $backupPath) { $backupPath } elseif ($applyChanges) { 'None (-NoBackup)' } else { 'Written on -Apply' }
+                'Backup' = if ($null -ne $backupPath) { $backupPath } elseif ($NoBackup) { 'None (-NoBackup)' } else { 'Written on -Apply' }
             }
             $report = [pscustomobject]@{
                 Mode = $reportMode; ToolVersion = $ToolVersion; GeneratedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')
