@@ -1916,6 +1916,78 @@ try {
     }
     Test-RunReportEscaping
 
+    # A -NoBackup preview must not promise a backup or an undo command for the matching apply run.
+    $noBackupReportPath = Join-Path $reportRoot 'no-backup.html'
+    & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -NoBackup -ReportPath $noBackupReportPath -NoOpenReport *>&1 | Out-Null
+    $noBackupReport = [System.IO.File]::ReadAllText($noBackupReportPath)
+    Assert-TextContains -Text $noBackupReport -Expected 'Backup: None (-NoBackup)' -Context '-NoBackup preview report'
+    Assert-TextContains -Text $noBackupReport -Expected 'writes no backup' -Context '-NoBackup preview report'
+    Assert-TextDoesNotContain -Text $noBackupReport -Unexpected 'Written on -Apply' -Context '-NoBackup preview report'
+    Assert-TextDoesNotContain -Text $noBackupReport -Unexpected 'the report will include the undo command' -Context '-NoBackup preview report'
+
+    function Test-LinuxDefaults {
+        . (Join-Path $root 'src/Common.ps1')
+        . (Join-Path $root 'src/PlatformPolicy.ps1')
+        . (Join-Path $root 'src/Reports.ps1')
+
+        # An absolute XDG_CONFIG_HOME moves the Brave profile folder; a relative one is ignored.
+        $savedConfigHome = $env:XDG_CONFIG_HOME
+        try {
+            $env:XDG_CONFIG_HOME = '/custom/config'
+            $xdgRoot = Get-DefaultProfileRoot -PlatformName Linux -Channel Beta
+            if ($xdgRoot -cne (Join-Path '/custom/config' 'BraveSoftware/Brave-Browser-Beta')) {
+                throw "Linux profile root ignored XDG_CONFIG_HOME: $xdgRoot"
+            }
+            $env:XDG_CONFIG_HOME = 'relative/config'
+            $relativeRoot = Get-DefaultProfileRoot -PlatformName Linux
+            if (-not [string]::IsNullOrWhiteSpace($HOME) -and $relativeRoot -cne (Join-Path $HOME '.config/BraveSoftware/Brave-Browser')) {
+                throw "Linux profile root used a relative XDG_CONFIG_HOME: $relativeRoot"
+            }
+        }
+        finally {
+            $env:XDG_CONFIG_HOME = $savedConfigHome
+        }
+
+        # xdg-open must receive a report path with spaces as one argument.
+        if ([System.IO.Path]::DirectorySeparatorChar -eq '\' -or (Test-Path -LiteralPath '/usr/bin/open')) {
+            return
+        }
+        $openRoot = Join-Path $tempRoot 'Open Report'
+        $openBin = Join-Path $openRoot 'bin'
+        New-Item -ItemType Directory -Path $openBin -Force | Out-Null
+        $openLog = Join-Path $openRoot 'opened.log'
+        $openTarget = Join-Path $openRoot 'my report.html'
+        [System.IO.File]::WriteAllText($openTarget, '<html></html>')
+        $fakeOpener = Join-Path $openBin 'xdg-open'
+        # The fake opener renames a finished file into place, so the log is never read half written.
+        [System.IO.File]::WriteAllText($fakeOpener, "#!/bin/sh`nprintf '%s\n' `"`$#`" `"`$1`" > '$openLog.tmp' && mv '$openLog.tmp' '$openLog'`n")
+        & chmod 755 $fakeOpener
+        $savedPath = $env:PATH
+        $savedCi = $env:CI
+        $savedDisplay = $env:DISPLAY
+        try {
+            $env:PATH = "$openBin$([System.IO.Path]::PathSeparator)$savedPath"
+            $env:CI = $null
+            $env:DISPLAY = ':0'
+            if (-not (Open-RunReport -Path $openTarget)) {
+                throw 'Open-RunReport did not start xdg-open.'
+            }
+            for ($attempt = 0; $attempt -lt 50 -and -not (Test-Path -LiteralPath $openLog); $attempt++) {
+                Start-Sleep -Milliseconds 100
+            }
+            $opened = @(Get-Content -LiteralPath $openLog)
+            if ($opened.Count -ne 2 -or $opened[0] -ne '1' -or $opened[1] -cne $openTarget) {
+                throw "xdg-open did not receive the report path as one argument: $($opened -join ' | ')"
+            }
+        }
+        finally {
+            $env:PATH = $savedPath
+            $env:CI = $savedCi
+            $env:DISPLAY = $savedDisplay
+        }
+    }
+    Test-LinuxDefaults
+
     # The weekly template check's publish step, with git and gh replaced by a recorder.
     $publishScript = Join-Path $root 'scripts/Publish-PolicyTemplateUpdate.ps1'
     $publishRoot = Join-Path $tempRoot 'TemplatePublish'

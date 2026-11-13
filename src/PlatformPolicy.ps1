@@ -52,6 +52,11 @@ function Get-DefaultProfileRoot {
             return (Join-Path $HOME "Library/Application Support/BraveSoftware/$browserDirectory")
         }
         'Linux' {
+            # Brave follows the XDG base directory spec: an absolute XDG_CONFIG_HOME replaces ~/.config.
+            $configHome = [string]$env:XDG_CONFIG_HOME
+            if ($configHome.StartsWith('/')) {
+                return (Join-Path $configHome "BraveSoftware/$browserDirectory")
+            }
             if ([string]::IsNullOrWhiteSpace($HOME)) { return '' }
             return (Join-Path $HOME ".config/BraveSoftware/$browserDirectory")
         }
@@ -196,6 +201,46 @@ function Get-ManagedPolicyJsonForWrite {
         throw "Managed policy file $Path contains date values that PowerShell $($PSVersionTable.PSVersion) would rewrite, so it was not changed. Rerun with PowerShell 7.5 or newer, or Windows PowerShell 5.1."
     }
     return $json
+}
+
+function Grant-ManagedPolicyReadAccess {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # Brave reads its managed policy folder as the signed-in user. Under a restrictive root umask (027 or
+    # 077) the file and the folders created for it would be unreadable to Brave, and the policies would
+    # silently not apply. Covers the file and the brave/policies/managed folders above it.
+    if (-not (Test-UnixFileModeSupported)) {
+        return
+    }
+
+    $fileMode = [int][System.IO.File]::GetUnixFileMode($Path)
+    $readBits = 36 # 0044: group and others may read.
+    if (($fileMode -band $readBits) -ne $readBits) {
+        [System.IO.File]::SetUnixFileMode($Path, [System.IO.UnixFileMode]($fileMode -bor $readBits))
+    }
+
+    $enterBits = 45 # 0055: group and others may list and enter.
+    $directory = Split-Path -Parent $Path
+    for ($level = 0; $level -lt 3 -and -not [string]::IsNullOrWhiteSpace($directory); $level++) {
+        $directoryMode = [int][System.IO.File]::GetUnixFileMode($directory)
+        if (($directoryMode -band $enterBits) -ne $enterBits) {
+            [System.IO.File]::SetUnixFileMode($directory, [System.IO.UnixFileMode]($directoryMode -bor $enterBits))
+        }
+        $directory = Split-Path -Parent $directory
+    }
+}
+
+function Set-ManagedPolicyJsonContent {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Json
+    )
+
+    Set-JsonFileContent -Path $Path -Object $Json -Depth 100
+    # A -PolicyPath file belongs to the user who chose it; only the system location must stay readable.
+    if ($Path -ceq '/etc/brave/policies/managed/BraveDebloater.json') {
+        Grant-ManagedPolicyReadAccess -Path $Path
+    }
 }
 
 function Get-ManagedPolicyValueKind {
@@ -388,7 +433,7 @@ function Get-PresentPolicyNames {
     }
 
     if ($hadReadError) {
-        $detail = if ([string]::IsNullOrWhiteSpace($readErrorMessage)) { '' } else { ": $readErrorMessage" }
+        $detail = if ([string]::IsNullOrWhiteSpace($readErrorMessage)) { '' } else { ": $($readErrorMessage.TrimEnd('.'))" }
         throw "Could not read existing policies at '$($Target.Path)'$detail."
     }
 
@@ -501,7 +546,7 @@ function Set-PolicyValue {
         else {
             $json.PSObject.Properties[$Name].Value = $value
         }
-        Set-JsonFileContent -Path $Target.Path -Object $json -Depth 100
+        Set-ManagedPolicyJsonContent -Path $Target.Path -Json $json
         return
     }
 
@@ -547,7 +592,7 @@ function Remove-PolicyValue {
         if (Test-Path -LiteralPath $Target.Path) {
             $json = Get-ManagedPolicyJsonForWrite -Path $Target.Path
             $json.PSObject.Properties.Remove($Name)
-            Set-JsonFileContent -Path $Target.Path -Object $json -Depth 100
+            Set-ManagedPolicyJsonContent -Path $Target.Path -Json $json
         }
         return
     }
@@ -699,7 +744,8 @@ function Test-PolicyValueMatches {
             return ([int64]$ActualValue -eq [int64]$ExpectedValue)
         }
         if ($Type -eq 'String') {
-            return ([string]$ActualValue -eq [string]$ExpectedValue)
+            # Brave reads string policy values case-sensitively ("OFF" is not the DNS mode "off").
+            return ([string]$ActualValue -ceq [string]$ExpectedValue)
         }
         if ($Type -eq 'Json') {
             if ($ActualValue -is [string]) {
