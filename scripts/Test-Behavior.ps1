@@ -1959,7 +1959,8 @@ try {
         $openTarget = Join-Path $openRoot 'my report.html'
         [System.IO.File]::WriteAllText($openTarget, '<html></html>')
         $fakeOpener = Join-Path $openBin 'xdg-open'
-        [System.IO.File]::WriteAllText($fakeOpener, "#!/bin/sh`nprintf '%s\n' `"`$#`" `"`$1`" > '$openLog'`n")
+        # The fake opener renames a finished file into place, so the log is never read half written.
+        [System.IO.File]::WriteAllText($fakeOpener, "#!/bin/sh`nprintf '%s\n' `"`$#`" `"`$1`" > '$openLog.tmp' && mv '$openLog.tmp' '$openLog'`n")
         & chmod 755 $fakeOpener
         $savedPath = $env:PATH
         $savedCi = $env:CI

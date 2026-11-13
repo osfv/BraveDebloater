@@ -242,16 +242,22 @@ function Copy-UnixFileOwnerAndMode {
     try {
         $sourceStat = (Get-Item -LiteralPath $SourcePath -Force).UnixStat
         $destinationStat = (Get-Item -LiteralPath $DestinationPath -Force).UnixStat
+        $mode = [int][System.IO.File]::GetUnixFileMode($SourcePath)
         if ($sourceStat.UserId -ne $destinationStat.UserId -or $sourceStat.GroupId -ne $destinationStat.GroupId) {
             & chown "$($sourceStat.UserId):$($sourceStat.GroupId)" $DestinationPath 2>$null
             $ownerCopied = $LASTEXITCODE -eq 0
             $global:LASTEXITCODE = 0
             if (-not $ownerCopied) {
-                # Keep the default mode: the original owner may need its "other" bits to read the new file.
-                return
+                if ($sourceStat.UserId -ne $destinationStat.UserId) {
+                    # Keep the default mode: the original owner may need its "other" bits to read the new file.
+                    return
+                }
+                # Same owner, another group: the new group must not inherit the old group's access (bits 0070),
+                # so it gets what everyone else has (bits 0007).
+                $mode = ($mode -band (-bnot 56)) -bor (($mode -band 7) -shl 3)
             }
         }
-        [System.IO.File]::SetUnixFileMode($DestinationPath, [System.IO.File]::GetUnixFileMode($SourcePath))
+        [System.IO.File]::SetUnixFileMode($DestinationPath, [System.IO.UnixFileMode]$mode)
     }
     catch {
         # Best effort. The content swap must not fail because ownership or mode could not be copied.
