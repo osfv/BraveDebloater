@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.2 - 2026-11-13
+
 - Rewriting a profile `Preferences` file or a Linux policy file on Linux and macOS now keeps the file's owner and permissions (PowerShell 7.3 or newer). Previously the replaced file got the default permissions, so a `0600` `Preferences` file became world-readable (`0644`), and a file rewritten with `sudo` ended up owned by root.
 
 - On Linux, `/etc/brave/policies/managed/BraveDebloater.json` and the `brave/policies/managed` folders are now made readable for every user after an apply or undo run. With a restrictive root umask (`027` or `077`) Brave could not read the new file, so the applied policies silently had no effect. A `-PolicyPath` file keeps the permissions it has.
