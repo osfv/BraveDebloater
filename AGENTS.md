@@ -59,3 +59,19 @@ When a Brave policy template zip is available, also run:
 ```powershell
 pwsh -NoProfile -File scripts/Test-LatestPolicyTemplates.ps1 -TemplateZipPath /tmp/brave-policy-templates.zip
 ```
+
+## Website
+
+The landing page lives in `site/` (Vite, React, Tailwind v4, Motion). `.github/workflows/pages.yml` builds it on pull requests and publishes it from `main` to GitHub Pages at <https://bravedebloater.tersa.tech> (`site/public/CNAME`). `/site export-ignore` keeps it out of release archives.
+
+- It reads features, presets, and the blocklist from `config/policies.json`, so manifest changes show up on the page without edits.
+- Media in `site/public/media/` comes from `assets/`: frames and a cut of the Linux recording.
+- The refusal tester in `site/src/components/Safety.tsx` mirrors `Assert-PolicySafety`. Keep its messages in step with `src/Manifest.ps1`.
+- Keep the copy free of em dashes, adverbs, and passive voice. Use real output and real counts only.
+
+```powershell
+cd site
+npm ci
+npm run dev      # local preview
+npm run build    # typecheck, then build to site/dist
+```
