@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --bg: #f4f4f5;
+  --surface: #fcfcfd;
+  --surface-2: #e9e9ec;
+  --line: rgb(22 24 28 / 0.11);
+  --line-strong: rgb(22 24 28 / 0.2);
+  --text: #16181c;
+  --muted: #5a606a;
+  --accent: #e8673f;
+  --accent-ink: #b63b13;
+  --accent-soft: rgb(232 103 63 / 0.11);
+  --on-accent: #1d0d06;
+  --shadow: 28 30 38;
+  /* Layers: nav 40, skip link 50. Everything else stacks locally. */
+  --z-nav: 40;
+  --z-skip: 50;
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #0e0f11;
+  --surface: #15171a;
+  --surface-2: #1e2125;
+  --line: rgb(255 255 255 / 0.09);
+  --line-strong: rgb(255 255 255 / 0.18);
+  --text: #edeef0;
+  --muted: #9a9fa8;
+  --accent: #e8673f;
+  --accent-ink: #ee7d58;
+  --accent-soft: rgb(232 103 63 / 0.13);
+  --on-accent: #1d0d06;
+  --shadow: 0 0 0;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  /* Shape rule: controls (buttons, chips, inputs, code) use ctl, panels and media use panel.
+     A control nested inside another control subtracts its inset from ctl. */
+  --radius-ctl: 0.625rem;
+  --radius-panel: 1.25rem;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    overflow-x: clip;
+    transition: background-color 0.35s var(--ease-expo), color 0.35s var(--ease-expo);
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent-ink);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  code,
+  kbd,
+  pre {
+    font-family: var(--font-mono);
+  }
+}
+
+@utility shadow-lift {
+  box-shadow:
+    0 1px 0 rgb(var(--shadow) / 0.04),
+    0 18px 40px -18px rgb(var(--shadow) / 0.35),
+    0 50px 90px -50px rgb(var(--shadow) / 0.45);
+}
+
+@utility wrap {
+  width: 100%;
+  max-width: 77.5rem;
+  margin-inline: auto;
+  padding-inline: 1.25rem;
+  @media (min-width: 48rem) {
+    padding-inline: 2rem;
+  }
+}
+
+/* Hero comparison: sized from the viewport height so the whole frame stays above the fold. */
+.compare-box {
+  width: 100%;
+  max-width: 27rem;
+}
+
+.compare-box > div:first-child {
+  aspect-ratio: 842 / 992;
+}
+
+@media (min-width: 64rem) {
+  .compare-box {
+    max-width: min(100%, calc((100dvh - 10.5rem) * 0.8488));
+    min-width: 17rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

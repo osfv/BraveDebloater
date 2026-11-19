@@ -8,3 +8,14 @@ updates:
       actions:
         patterns:
           - '*'
+  - package-ecosystem: npm
+    directory: /site
+    schedule:
+      interval: weekly
+    groups:
+      site:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
