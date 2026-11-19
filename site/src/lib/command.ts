@@ -7,7 +7,7 @@ export type Feature = {
 
 export type ManifestShape = {
   presets: Record<string, string[]>;
-  features: { id: string; label: string; reason: string; policies: string[] }[];
+  features: Feature[];
 };
 
 export const PRESET_NAMES = ["Standard", "High", "Extreme"] as const;
@@ -32,7 +32,10 @@ export function presetFeatureIds(manifest: ManifestShape, name: PresetName): str
 
 export type CommandPart = { flag: string; value?: string };
 
-/** The shortest argument list that selects exactly `selected`, in manifest order. */
+/**
+ * Arguments that select exactly `selected`, in manifest order. Picks the form that names the
+ * fewest features: `-OnlyFeature`, or a preset plus the features to add and drop.
+ */
 export function buildArgs(manifest: ManifestShape, selected: ReadonlySet<string>): CommandPart[] | null {
   const ordered = manifest.features.filter((f) => f.policies.length > 0 && selected.has(f.id)).map((f) => f.id);
   if (ordered.length === 0) return null;

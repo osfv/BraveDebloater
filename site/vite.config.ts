@@ -5,5 +5,5 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   base: "./",
   plugins: [react(), tailwindcss()],
-  server: { fs: { allow: [".."] } },
+  server: { fs: { allow: [".", "../config"] } },
 });

@@ -5,6 +5,11 @@ import { PRESET_NAMES, buildArgs, partsToText, type Feature, type PresetName } f
 import { SCRIPT, features, manifest, policyValue, presetIds, sentenceCase, tiers } from "../lib/manifest";
 import { CopyButton, EASE, Reveal, SectionHeading, cn } from "./ui";
 
+const LAUNCHERS = [
+  { id: "script", label: "Script", prefix: SCRIPT, hint: "Run it in the folder that holds the script." },
+  { id: "scoop", label: "Scoop", prefix: "bravedebloat", hint: "The Scoop shim runs from any folder." },
+];
+
 const sameSet = (ids: string[], set: ReadonlySet<string>) => ids.length === set.size && ids.every((id) => set.has(id));
 
 function Chip({
@@ -105,6 +110,7 @@ function Count({ value }: { value: number }) {
 export function Builder() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(presetIds.Standard));
   const [apply, setApply] = useState(false);
+  const [launcherId, setLauncherId] = useState(LAUNCHERS[0].id);
   const [inspected, setInspected] = useState(features[0].id);
   const [wave, setWave] = useState(false);
   const waveTimer = useRef<number | undefined>(undefined);
@@ -115,7 +121,8 @@ export function Builder() {
   const activePreset = PRESET_NAMES.find((name) => sameSet(presetIds[name], selected)) ?? null;
   const chosen = features.filter((f) => selected.has(f.id));
   const policyCount = chosen.reduce((sum, f) => sum + f.policies.length, 0);
-  const command = parts ? [SCRIPT, partsToText(parts), apply && "-Apply"].filter(Boolean).join(" ") : "";
+  const launcher = LAUNCHERS.find((item) => item.id === launcherId) ?? LAUNCHERS[0];
+  const command = parts ? [launcher.prefix, partsToText(parts), apply && "-Apply"].filter(Boolean).join(" ") : "";
   const detail = features.find((f) => f.id === inspected) ?? features[0];
 
   function choosePreset(name: PresetName | null) {
@@ -180,7 +187,7 @@ export function Builder() {
           </div>
 
           {tiers.map((tier) => (
-            <div key={tier.preset} className="mt-9 border-t border-line pt-4">
+            <div key={tier.title} className="mt-9 border-t border-line pt-4">
               <div className="flex items-baseline justify-between gap-4">
                 <h3 className="font-medium">{tier.title}</h3>
                 <span className="text-sm text-muted">{tier.note}</span>
@@ -204,8 +211,30 @@ export function Builder() {
         <Reveal delay={0.1} className="lg:col-span-5">
           <div className="lg:sticky lg:top-24">
             <div className="rounded-panel border border-line bg-surface p-5 shadow-lift md:p-6">
-              <div className="flex items-baseline justify-between gap-4 text-sm text-muted">
-                <span>{apply ? "Apply command" : "Preview command"}</span>
+              <div className="flex items-center justify-between gap-4 text-sm text-muted">
+                <div role="group" aria-label="How you run the tool" className="inline-flex rounded-ctl border border-line p-0.5">
+                  {LAUNCHERS.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-pressed={launcher.id === item.id}
+                      onClick={() => setLauncherId(item.id)}
+                      className={cn(
+                        "relative h-7 rounded-[0.5rem] px-2.5 text-[0.8125rem] font-medium transition-colors duration-200",
+                        launcher.id === item.id ? "text-text" : "hover:text-text",
+                      )}
+                    >
+                      {launcher.id === item.id && (
+                        <motion.span
+                          layoutId="launcher-pill"
+                          className="absolute inset-0 rounded-[0.5rem] bg-surface-2"
+                          transition={{ type: "spring", stiffness: 420, damping: 36 }}
+                        />
+                      )}
+                      <span className="relative">{item.label}</span>
+                    </button>
+                  ))}
+                </div>
                 <span>
                   <Count value={chosen.length} /> {chosen.length === 1 ? "feature" : "features"},{" "}
                   <Count value={policyCount} /> {policyCount === 1 ? "policy" : "policies"}
@@ -218,7 +247,7 @@ export function Builder() {
               >
                 {parts ? (
                   <>
-                    <span className="text-muted">{SCRIPT}</span>
+                    <span className="text-muted">{launcher.prefix}</span>
                     {parts.map((part) => (
                       <span key={part.flag}>
                         {" "}
@@ -273,7 +302,8 @@ export function Builder() {
               <p className="mt-4 text-sm leading-relaxed text-muted">
                 {apply
                   ? "This run saves a backup, then writes the policies. Restart Brave when it finishes."
-                  : "This run prints the plan and changes nothing."}
+                  : "This run prints the plan and changes nothing."}{" "}
+                {launcher.hint}
               </p>
             </div>
 

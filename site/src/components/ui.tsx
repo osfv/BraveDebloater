@@ -110,7 +110,8 @@ export function CommandLine({ text, label, large }: { text: string; label: strin
         large ? "py-2.5 pr-2.5 pl-5" : "py-2 pr-2 pl-4",
       )}
     >
-      <code
+      <div
+        role="group"
         aria-label={label}
         tabIndex={0}
         className={cn(
@@ -118,8 +119,8 @@ export function CommandLine({ text, label, large }: { text: string; label: strin
           large ? "text-[0.9375rem] max-sm:break-all max-sm:whitespace-normal" : "text-[0.875rem]",
         )}
       >
-        {text}
-      </code>
+        <code>{text}</code>
+      </div>
       <CopyButton text={text} variant={large ? "solid" : "quiet"} />
     </div>
   );

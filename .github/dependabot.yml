@@ -16,3 +16,6 @@ updates:
       site:
         patterns:
           - '*'
+        update-types:
+          - minor
+          - patch

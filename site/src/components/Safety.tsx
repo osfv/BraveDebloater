@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Minus, Prohibit } from "@phosphor-icons/react";
-import { blockedPolicyNames, manifest, policyValue } from "../lib/manifest";
+import { blockedPolicyNames, manifest } from "../lib/manifest";
+import { judge, type Verdict } from "../lib/safety";
 import { EASE, Reveal, SectionHeading, cn } from "./ui";
 
 const patterns = manifest.safety.blockedNamePatterns;
-const managed = Object.keys(manifest.policies);
 
 const ASKS = [
   { ask: "turn Shields off for a site", name: "BraveShieldsDisabledForUrls" },
@@ -16,47 +16,11 @@ const ASKS = [
   { ask: "set a homepage", name: "HomepageLocation" },
 ];
 
-type Verdict = { kind: "refused" | "allowed" | "unlisted"; name: string; quote?: string; note: string };
-
 const VERDICT = {
   refused: { label: "Refused", Icon: Prohibit, tone: "text-accent-ink" },
   allowed: { label: "Allowed", Icon: Check, tone: "text-text" },
   unlisted: { label: "Not in the manifest", Icon: Minus, tone: "text-muted" },
 };
-
-/** Mirrors Assert-PolicySafety in src/Manifest.ps1, including its messages and case-insensitive matching. */
-function judge(input: string): Verdict {
-  const same = (name: string) => name.toLowerCase() === input.toLowerCase();
-  const beforeWrite = "The check runs before the backup and before any write.";
-
-  const blocked = blockedPolicyNames.find(same);
-  if (blocked) {
-    return { kind: "refused", name: blocked, quote: `Refusing to apply protected policy '${blocked}'.`, note: beforeWrite };
-  }
-  const pattern = patterns.find((p) => new RegExp(p, "i").test(input));
-  if (pattern) {
-    return {
-      kind: "refused",
-      name: input,
-      quote: `Refusing to apply '${input}' because it matches protected pattern '${pattern}'.`,
-      note: beforeWrite,
-    };
-  }
-  const known = managed.find(same);
-  if (known) {
-    return {
-      kind: "allowed",
-      name: known,
-      quote: `${known} = ${policyValue(known)}`,
-      note: manifest.policies[known].reason,
-    };
-  }
-  return {
-    kind: "unlisted",
-    name: input,
-    note: "BraveDebloater writes the policies in its manifest and nothing else. It has no switch for this one.",
-  };
-}
 
 function Stage({ verdict }: { verdict: Verdict }) {
   const chars = [...verdict.name];
@@ -73,10 +37,10 @@ function Stage({ verdict }: { verdict: Verdict }) {
       transition={{ x: { duration: 0.45, delay: typed + 0.1 }, opacity: { duration: 0.12 } }}
     >
       <p
-        aria-label={verdict.name}
         className="relative w-fit font-mono leading-none font-medium tracking-[-0.02em] whitespace-nowrap"
         style={{ fontSize: `min(4.25rem, ${(100 / (Math.max(chars.length, 14) * 0.6)).toFixed(3)}cqw)` }}
       >
+        <span className="sr-only">{verdict.name}</span>
         <span aria-hidden className={refused ? "text-muted" : "text-text"}>
           {chars.map((char, index) => (
             <motion.span
@@ -123,7 +87,7 @@ export function Safety() {
   const [query, setQuery] = useState(ASKS[0].name);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const verdict = judge(query);
+  const verdict = judge(manifest, query);
 
   function submit(event: FormEvent) {
     event.preventDefault();

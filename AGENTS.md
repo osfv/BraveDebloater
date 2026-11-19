@@ -66,7 +66,7 @@ The landing page lives in `site/` (Vite, React, Tailwind v4, Motion). `.github/w
 
 - It reads features, presets, and the blocklist from `config/policies.json`, so manifest changes show up on the page without edits.
 - Media in `site/public/media/` comes from `assets/`: frames and a cut of the Linux recording.
-- The refusal tester in `site/src/components/Safety.tsx` mirrors `Assert-PolicySafety`. Keep its messages in step with `src/Manifest.ps1`.
+- The refusal tester (`site/src/lib/safety.ts`) mirrors `Assert-PolicySafety`. `npm test` fails when its messages drift from `src/Manifest.ps1`.
 - Keep the copy free of em dashes, adverbs, and passive voice. Use real output and real counts only.
 
 ```powershell
@@ -74,4 +74,5 @@ cd site
 npm ci
 npm run dev      # local preview
 npm run build    # typecheck, then build to site/dist
+npm test         # compares generated commands and refusal messages with the real script
 ```

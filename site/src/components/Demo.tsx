@@ -87,6 +87,7 @@ export function Demo() {
   useEffect(() => {
     const el = video.current;
     if (!el) return;
+    if (reduce) el.pause();
     let raf = 0;
 
     const tick = () => {
