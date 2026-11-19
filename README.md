@@ -23,6 +23,10 @@
 </p>
 
 <p>
+  Pick features and copy the matching command at <a href="https://bravedebloater.tersa.tech">bravedebloater.tersa.tech</a>.
+</p>
+
+<p>
   <img src="assets/icons/windows.svg" width="16" alt="Windows logo" /> Windows/macOS/Linux
   &nbsp;·&nbsp;
   <img src="assets/icons/powershell.svg" width="16" alt="PowerShell logo" /> PowerShell runtime
