@@ -20,7 +20,8 @@ const command = (ids: string[]) => {
   return parts ? partsToText(parts) : null;
 };
 
-const hasPwsh = spawnSync("pwsh", ["-NoProfile", "-Command", "exit 0"]).status === 0;
+// The comparisons with the real script need PowerShell. CI must run them; a machine without pwsh skips them.
+const hasPwsh = process.env.CI === "true" || spawnSync("pwsh", ["-NoProfile", "-Command", "exit 0"]).status === 0;
 const pwsh = (args: string[], env: Record<string, string> = {}) => {
   const result = spawnSync("pwsh", ["-NoProfile", ...args], {
     cwd: root,
@@ -100,10 +101,10 @@ test("generated commands make the real script plan exactly the selected policies
 
 test("blocked names are refused, whatever their case", () => {
   for (const name of manifest.safety.blockedPolicyNames) {
-    const verdict = judge(manifest, name.toUpperCase());
+    const typed = name.toUpperCase();
+    const verdict = judge(manifest, typed);
     assert.equal(verdict.kind, "refused");
-    assert.equal(verdict.name, name);
-    assert.equal(verdict.quote, `Refusing to apply protected policy '${name}'.`);
+    assert.equal(verdict.quote, `Refusing to apply protected policy '${typed}'.`);
   }
 });
 
@@ -130,7 +131,14 @@ test("other names are reported as outside the manifest", () => {
 });
 
 test("refusal messages match Assert-PolicySafety word for word", { skip: !hasPwsh }, () => {
-  const names = [...manifest.safety.blockedPolicyNames, "MyShieldsDisabledList", "SomeUpdateNowDisabledFlag"];
+  const names = [
+    ...manifest.safety.blockedPolicyNames,
+    "BRAVESYNCURL",
+    "componentupdatesenabled",
+    "MyShieldsDisabledList",
+    "myshieldsdisabledlist",
+    "SomeUpdateNowDisabledFlag",
+  ];
   const script = [
     "$manifest = Get-Content -LiteralPath config/policies.json -Raw | ConvertFrom-Json",
     ". ./src/Common.ps1",

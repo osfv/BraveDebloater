@@ -14,7 +14,10 @@ export const formatValue = (value: unknown) => (typeof value === "object" ? JSON
 
 const BEFORE_WRITE = "The check runs before the backup and before any write.";
 
-/** Mirrors Assert-PolicySafety in src/Manifest.ps1, including its messages and case-insensitive matching. */
+/**
+ * Mirrors Assert-PolicySafety in src/Manifest.ps1: case-insensitive matching, and messages that
+ * echo the name as typed.
+ */
 export function judge(manifest: SafetyManifest, input: string): Verdict {
   const same = (name: string) => name.toLowerCase() === input.toLowerCase();
 
@@ -22,8 +25,8 @@ export function judge(manifest: SafetyManifest, input: string): Verdict {
   if (blocked) {
     return {
       kind: "refused",
-      name: blocked,
-      quote: `Refusing to apply protected policy '${blocked}'.`,
+      name: input,
+      quote: `Refusing to apply protected policy '${input}'.`,
       note: BEFORE_WRITE,
     };
   }

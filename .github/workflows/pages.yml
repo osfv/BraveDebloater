@@ -1,7 +1,7 @@
 name: Website
 
-# Builds site/ on every change. Pushes to main also publish it to GitHub Pages
-# at https://bravedebloater.tersa.tech.
+# Builds and tests site/ when the site, the manifest, or the script changes.
+# Pushes to main also publish it to GitHub Pages at https://bravedebloater.tersa.tech.
 on:
   push:
     branches:
@@ -9,11 +9,15 @@ on:
     paths:
       - site/**
       - config/policies.json
+      - Invoke-BraveDebloat.ps1
+      - src/**
       - .github/workflows/pages.yml
   pull_request:
     paths:
       - site/**
       - config/policies.json
+      - Invoke-BraveDebloat.ps1
+      - src/**
       - .github/workflows/pages.yml
   workflow_dispatch:
 
