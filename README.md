@@ -42,9 +42,9 @@ PowerShell is the cross-platform runtime. The files it writes are native to each
 
 ## Linux Demo
 
-[![Watch the Linux preview, apply, and undo demo](assets/videos/bravedebloater-linux-demo-preview.png)](assets/videos/bravedebloater-linux-demo.mp4)
+[![Linux demo: preview the Standard preset, apply it, check brave://policy, and undo it](assets/videos/bravedebloater-linux-demo.gif)](assets/videos/bravedebloater-linux-demo.mp4)
 
-[Watch the Linux demo (87 seconds, MP4)](assets/videos/bravedebloater-linux-demo.mp4): preview the cleanup, apply it, and undo it from a backup.
+The clip above is a 34-second cut. [Watch the full Linux demo (87 seconds, MP4)](assets/videos/bravedebloater-linux-demo.mp4): preview the cleanup, apply it, and undo it from a backup.
 
 ## What It Does Not Do
 

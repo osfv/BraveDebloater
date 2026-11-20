@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The README demo now plays inline as an animated clip instead of a still preview image.
+
 ## 0.9.2 - 2026-11-13
 
 - Rewriting a profile `Preferences` file or a Linux policy file on Linux and macOS now keeps the file's owner and permissions (PowerShell 7.3 or newer). Previously the replaced file got the default permissions, so a `0600` `Preferences` file became world-readable (`0644`), and a file rewritten with `sudo` ended up owned by root.
