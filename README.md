@@ -131,7 +131,7 @@ Combine several with commas (`-OnlyFeature Rewards,Wallet,VPN,LeoAI`), or start 
 - It does not turn off Brave Shields, add Shield allowlists, or weaken Safe Browsing. The optional `-LockShields` add-on only enforces stricter Shields defaults.
 - It does not edit your hosts file, remove extensions, patch Brave binaries, or install anything into Brave.
 - It does not run hidden. Every policy it sets is listed in `brave://policy` with its value, and `-Doctor` reports the current state read-only.
-- It does not change Brave's policies or profile files without `-Apply`. A report (`-ReportPath`) or export (`-ExportPolicyPath`) is a separate file, and the script writes it in a preview too. Unless you use `-NoBackup` for a policy-only run, every apply run leaves a JSON backup that `-UndoFromBackup` can restore.
+- It does not change Brave's policies or profile files without `-Apply`. A report (`-ReportPath`) or export (`-ExportPolicyPath`) writes the file you name in a preview too, so do not name Brave's own policy file as the export. Unless you use `-NoBackup` for a policy-only run, every apply run leaves a JSON backup that `-UndoFromBackup` can restore.
 
 ## Screenshots
 

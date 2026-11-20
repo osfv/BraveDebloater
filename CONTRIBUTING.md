@@ -50,7 +50,7 @@ Every Monday, `.github/workflows/policy-templates.yml` downloads the latest temp
 .\scripts\Compare-PolicyTemplates.ps1 -TemplateZipPath .\policy_templates.zip
 ```
 
-Each run also writes the comparison and the manifest validation result to its run page. With **Settings > Actions > General > Allow GitHub Actions to create and approve pull requests** turned off, GitHub Actions cannot open the pull request, so the workflow still pushes `automation/policy-templates` and opens or updates one issue with the comparison and a link to open the pull request yourself. Later runs close that issue once a pull request from the branch is open, or once `main` records the latest templates. `scripts/Publish-PolicyTemplateUpdate.ps1` does the publishing.
+Each run also writes the comparison to its run page. When the templates changed, it adds the manifest validation result. With **Settings > Actions > General > Allow GitHub Actions to create and approve pull requests** turned off, GitHub Actions cannot open the pull request, so the workflow still pushes `automation/policy-templates` and opens or updates one issue with the comparison and a link to open the pull request yourself. Later runs close that issue once a pull request from the branch is open, or once `main` records the latest templates. `scripts/Publish-PolicyTemplateUpdate.ps1` does the publishing.
 
 A zip newer than the recorded template version passes with a warning, because Brave's `latest` download changes with every release. Add `-RequireVersionMatch` before a release so the recorded version is exact. The check also confirms each manifest value fits the ADMX definition (boolean, enum, integer, or text).
 

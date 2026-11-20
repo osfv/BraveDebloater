@@ -8,7 +8,7 @@ One line in PowerShell (Windows PowerShell 5.1 or PowerShell 7 on Windows, macOS
 irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1 | iex
 ```
 
-It downloads the latest release zip and `SHA256SUMS.txt`, refuses to continue if the hash does not match, extracts to `%LOCALAPPDATA%\Programs\BraveDebloater` (Windows) or `~/.local/share/BraveDebloater`, and prints the preview command. Running it again upgrades in place and keeps `backups/`. It does not touch Brave. To pick a version or folder:
+It downloads the latest release zip and `SHA256SUMS.txt`, refuses to continue if the hash does not match, extracts to `%LOCALAPPDATA%\Programs\BraveDebloater` on Windows, or to `$XDG_DATA_HOME/BraveDebloater` on macOS and Linux (`~/.local/share/BraveDebloater` when that variable is not set), and prints the folder it used with the preview command. Running it again upgrades in place and keeps `backups/`. It does not touch Brave. To pick a version or folder:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/osfv/BraveDebloater/main/install.ps1))) -Version 0.9.2 -Destination C:\Tools\BraveDebloater
