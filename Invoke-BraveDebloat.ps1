@@ -274,6 +274,16 @@ if (-not [string]::IsNullOrWhiteSpace($PolicyPath) -and $policyTarget.Kind -noti
     Write-Warning "-PolicyPath is ignored for $platformName $Scope policies, which are written to $($policyTarget.Path). It only selects a file for Linux or macOS LocalMachine targets."
 }
 
+# An export is written without -Apply or a backup, and a report is written in a preview as well as
+# after -Apply, never through the policy backup. Neither may be a file Brave reads its policies from.
+# Checked before anything is written, also for -WhatIf.
+if ($exportRequested) {
+    Assert-PolicyOutputPath -ParameterName 'ExportPolicyPath' -Path $ExportPolicyPath -Target $policyTarget
+}
+if ($reportRequested) {
+    Assert-PolicyOutputPath -ParameterName 'ReportPath' -Path $ReportPath -Target $policyTarget
+}
+
 # Enforce the iOS/iPadOS MDM allowlist for every run (dry-run, apply, and export) so the
 # preview never implies on-device support for policies Brave's mobile MDM cannot accept.
 Assert-MobilePolicySupport -PlatformName $platformName -PolicyNames (@($policyNames.ToArray()) + @($dnsRemovePolicyNames.ToArray())) -Manifest $manifest
