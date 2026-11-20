@@ -173,6 +173,70 @@ function Get-PolicyTarget {
     }
 }
 
+function Get-PolicyOutputPathConflict {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Target
+    )
+
+    # Exports and reports are written without -Apply and without a backup. Returns why $Path would
+    # replace a file Brave reads its policies from, or '' when it is safe to write.
+    $isUnixHost = [System.IO.Path]::DirectorySeparatorChar -eq [char]'/'
+    $isMacHost = [bool]((Get-Variable -Name IsMacOS -Scope Global -ErrorAction SilentlyContinue) -and $IsMacOS)
+    # Windows and macOS volumes ignore case by default, so 'Policy.json' and 'policy.json' are one file there.
+    $comparison = if ($isUnixHost -and -not $isMacHost) { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
+    $separator = [string][System.IO.Path]::DirectorySeparatorChar
+    $outputPath = Resolve-FileSystemLinkPath -Path $Path
+
+    $targetFiles = New-Object System.Collections.Generic.List[string]
+    if ($Target.Kind -in @('JsonFile', 'MacOSPlist')) {
+        [void]$targetFiles.Add([string]$Target.Path)
+    }
+    elseif ($Target.Kind -eq 'MacOSDefaults' -and -not [string]::IsNullOrWhiteSpace($HOME)) {
+        # `defaults write com.brave.Browser` stores the user policies in this file.
+        [void]$targetFiles.Add((Join-Path $HOME 'Library/Preferences/com.brave.Browser.plist'))
+    }
+    foreach ($targetFile in $targetFiles) {
+        if ([string]::Equals($outputPath, (Resolve-FileSystemLinkPath -Path $targetFile), $comparison)) {
+            return "is the Brave policy file this command targets ($targetFile)"
+        }
+    }
+
+    if (-not $isUnixHost) {
+        return ''
+    }
+
+    # Brave loads every file in its Linux policy folders, and these plist names on macOS, as live policy.
+    $policyFolders = New-Object System.Collections.Generic.List[object]
+    [void]$policyFolders.Add(@{ Directory = '/etc/brave/policies'; Leaf = '*' })
+    [void]$policyFolders.Add(@{ Directory = '/Library/Managed Preferences'; Leaf = 'com.brave.Browser*.plist' })
+    if (-not [string]::IsNullOrWhiteSpace($HOME)) {
+        [void]$policyFolders.Add(@{ Directory = (Join-Path $HOME 'Library/Preferences'); Leaf = 'com.brave.Browser*.plist' })
+    }
+    $outputLeaf = [System.IO.Path]::GetFileName($outputPath)
+    foreach ($policyFolder in $policyFolders) {
+        $folderPath = (Resolve-FileSystemLinkPath -Path $policyFolder.Directory).TrimEnd($separator) + $separator
+        if ($outputPath.StartsWith($folderPath, $comparison) -and $outputLeaf -like $policyFolder.Leaf) {
+            return "is inside $($policyFolder.Directory), where Brave reads its policies"
+        }
+    }
+
+    return ''
+}
+
+function Assert-PolicyOutputPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$ParameterName,
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Target
+    )
+
+    $conflict = Get-PolicyOutputPathConflict -Path $Path -Target $Target
+    if (-not [string]::IsNullOrEmpty($conflict)) {
+        throw "-$ParameterName '$Path' $conflict. Writing it would replace Brave policies without -Apply or a backup. Choose a file somewhere else. No changes were made."
+    }
+}
+
 function Get-ManagedPolicyJson {
     param([Parameter(Mandatory = $true)][string]$Path)
 

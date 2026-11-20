@@ -21,6 +21,83 @@ foreach ($case in @(@{ Platform = 'Windows'; Extension = 'reg' }, @{ Platform = 
     if ((Get-Utf8FileContent -Path $exportPath) -cne 'keep this file') { throw 'WhatIf overwrote an export.' }
 }
 
+# An export or report is written without -Apply and without a backup, so it must be refused when it
+# names the policy file of the run. Uses synthetic policy files only, never a real Brave location.
+function Get-OutputGuardMessage {
+    param([Parameter(Mandatory = $true)][hashtable]$Parameters)
+
+    try { & $scriptPath @Parameters *> $null }
+    catch { return $_.Exception.Message }
+    return ''
+}
+$guardDirectory = Join-Path $TempRoot 'output-guard'
+New-DirectoryLiteral -Path $guardDirectory
+$guardOriginal = '{"HomepageLocation":"https://example.com"}'
+foreach ($case in @(@{ Platform = 'Linux'; Scope = 'CurrentUser'; Name = 'live.json' }, @{ Platform = 'macOS'; Scope = 'LocalMachine'; Name = 'live.plist' })) {
+    $livePolicy = Join-Path $guardDirectory $case.Name
+    Set-TextFileContent -Path $livePolicy -Content $guardOriginal
+    $base = @{ Platform = $case.Platform; Scope = $case.Scope; OnlyFeature = 'Rewards'; PolicyPath = $livePolicy }
+    $respelledPolicy = Join-Path (Join-Path (Join-Path $guardDirectory 'missing') '..') $case.Name
+    foreach ($extra in @(@{ ExportPolicyPath = $livePolicy }, @{ ExportPolicyPath = $respelledPolicy }, @{ ExportPolicyPath = $livePolicy; Apply = $true }, @{ ExportPolicyPath = $livePolicy; WhatIf = $true })) {
+        $message = Get-OutputGuardMessage -Parameters ($base + $extra)
+        if ($message -notlike "-ExportPolicyPath '*' is the Brave policy file this command targets*No changes were made.") { throw "$($case.Platform) export onto the policy file was not refused: $message" }
+        if ((Get-Utf8FileContent -Path $livePolicy) -cne $guardOriginal) { throw "$($case.Platform) export overwrote the policy file." }
+    }
+
+    # A different file in the same folder still exports and leaves the policy file alone.
+    $separateExport = Join-Path $guardDirectory ('export-' + $case.Name)
+    $message = Get-OutputGuardMessage -Parameters ($base + @{ ExportPolicyPath = $separateExport })
+    if ($message -ne '' -or -not (Test-Path -LiteralPath $separateExport)) { throw "$($case.Platform) export next to the policy file failed: $message" }
+    if ((Get-Utf8FileContent -Path $livePolicy) -cne $guardOriginal) { throw "$($case.Platform) export next to the policy file changed it." }
+}
+
+# The same file reached through a symlinked folder is refused too. Skipped where symlinks need extra rights.
+$livePolicy = Join-Path $guardDirectory 'live.json'
+$linkedDirectory = Join-Path $TempRoot 'output-guard-link'
+$linkCreated = $false
+try {
+    New-Item -ItemType SymbolicLink -Path $linkedDirectory -Target $guardDirectory -ErrorAction Stop | Out-Null
+    $linkCreated = $true
+}
+catch { Write-Host 'Skipped the symlink export check: this session cannot create symlinks.' }
+if ($linkCreated) {
+    try {
+        $message = Get-OutputGuardMessage -Parameters @{ Platform = 'Linux'; OnlyFeature = 'Rewards'; PolicyPath = $livePolicy; ExportPolicyPath = (Join-Path $linkedDirectory 'live.json') }
+        if ($message -notlike '*is the Brave policy file this command targets*') { throw "Export through a symlinked folder was not refused: $message" }
+        if ((Get-Utf8FileContent -Path $livePolicy) -cne $guardOriginal) { throw 'Export through a symlinked folder overwrote the policy file.' }
+    }
+    finally { [System.IO.Directory]::Delete($linkedDirectory) }
+}
+
+# A preview report is refused the same way, before the run prints or writes anything.
+$htmlPolicy = Join-Path $guardDirectory 'live.html'
+Set-TextFileContent -Path $htmlPolicy -Content $guardOriginal
+foreach ($extra in @(@{}, @{ Apply = $true; NoBackup = $true })) {
+    $message = Get-OutputGuardMessage -Parameters (@{ Platform = 'Linux'; OnlyFeature = 'Rewards'; PolicyPath = $htmlPolicy; ReportPath = $htmlPolicy; NoOpenReport = $true } + $extra)
+    if ($message -notlike "-ReportPath '*' is the Brave policy file this command targets*No changes were made.") { throw "Report onto the policy file was not refused: $message" }
+    if ((Get-Utf8FileContent -Path $htmlPolicy) -cne $guardOriginal) { throw 'Report overwrote the policy file.' }
+}
+
+# Brave's own policy locations are refused whatever -Platform or -PolicyPath says. Path checks only,
+# plus -WhatIf runs that cannot write even if the guard regressed.
+if ([System.IO.Path]::DirectorySeparatorChar -eq [char]'/') {
+    $registryTarget = [pscustomobject]@{ Platform = 'Windows'; Kind = 'Registry'; Path = 'HKCU:\Software\Policies\BraveSoftware\Brave' }
+    $defaultsTarget = [pscustomobject]@{ Platform = 'macOS'; Kind = 'MacOSDefaults'; Path = 'com.brave.Browser' }
+    $userPlist = Join-Path $HOME 'Library/Preferences/com.brave.Browser.plist'
+    foreach ($refused in @('/etc/brave/policies/managed/BraveDebloater.json', '/etc/brave/policies/managed/other.json', '/etc/brave/policies/recommended/other.json', '/Library/Managed Preferences/com.brave.Browser.plist', '/Library/Managed Preferences/someone/com.brave.Browser.plist', $userPlist)) {
+        if ((Get-PolicyOutputPathConflict -Path $refused -Target $registryTarget) -eq '') { throw "An output path in a Brave policy location was allowed: $refused" }
+    }
+    if ((Get-PolicyOutputPathConflict -Path $userPlist -Target $defaultsTarget) -notlike 'is the Brave policy file this command targets*') { throw 'The macOS user defaults file was not treated as the policy target.' }
+    foreach ($allowed in @('/Library/Managed Preferences/com.example.plist', (Join-Path $HOME 'Library/Preferences/com.example.plist'), (Join-Path $guardDirectory 'com.brave.Browser.plist'), '/etc/brave/export.json')) {
+        $conflict = Get-PolicyOutputPathConflict -Path $allowed -Target $registryTarget
+        if ($conflict -ne '') { throw "An output path outside Brave's policy locations was refused: $allowed $conflict" }
+    }
+    foreach ($parameters in @(@{ Platform = 'Linux' }, @{ Platform = 'Windows' }, @{ Platform = 'Linux'; PolicyPath = $livePolicy })) {
+        $message = Get-OutputGuardMessage -Parameters ($parameters + @{ OnlyFeature = 'Rewards'; ExportPolicyPath = '/etc/brave/policies/managed/BraveDebloater.json'; WhatIf = $true })
+        if ($message -notlike "-ExportPolicyPath '*No changes were made.") { throw "Export into Brave's Linux policy folder was not refused: $message" }
+    }
+}
+
 # Read-only modes cannot fall through to destructive retention, restore, or export operations.
 $retentionDirectory = Join-Path $TempRoot 'ModeBackups'
 New-DirectoryLiteral -Path $retentionDirectory

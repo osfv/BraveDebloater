@@ -86,6 +86,47 @@ function Get-FileSystemPathComparison {
     return [StringComparison]::Ordinal
 }
 
+function Resolve-FileSystemLinkPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # Follows symlinks and junctions in every existing part of the path, so two spellings of one file
+    # compare equal. Parts that do not exist yet are kept as written.
+    $fullPath = Get-FullFileSystemPath -Path $Path
+    [char[]]$separators = @([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    for ($hop = 0; $hop -lt 64; $hop++) {
+        $current = [System.IO.Path]::GetPathRoot($fullPath)
+        $parts = @($fullPath.Substring($current.Length).Split($separators, [StringSplitOptions]::RemoveEmptyEntries))
+        $followedLink = $false
+        for ($index = 0; $index -lt $parts.Count; $index++) {
+            $parent = $current
+            $current = [System.IO.Path]::Combine($parent, $parts[$index])
+            $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+            if ($null -eq $item) {
+                break
+            }
+            if (-not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                continue
+            }
+            $linkTarget = [string](@($item.Target) | Select-Object -First 1)
+            if ([string]::IsNullOrWhiteSpace($linkTarget)) {
+                continue
+            }
+            $remaining = @($parts | Select-Object -Skip ($index + 1))
+            $fullPath = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($parent, $linkTarget))
+            foreach ($part in $remaining) {
+                $fullPath = [System.IO.Path]::Combine($fullPath, $part)
+            }
+            $followedLink = $true
+            break
+        }
+        if (-not $followedLink) {
+            break
+        }
+    }
+
+    return $fullPath
+}
+
 function Test-PathIsUnderDirectory {
     param(
         [Parameter(Mandatory = $true)][string]$Path,

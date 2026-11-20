@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `-ExportPolicyPath` and `-ReportPath` now refuse a path that is Brave's policy file: the `-PolicyPath` file or default policy file of the run (also through another spelling or a symlink), any file in `/etc/brave/policies` on Linux, and Brave's managed and user preference plists on macOS. Previously a preview such as `-PolicyPath ./brave.json -ExportPolicyPath ./brave.json` replaced that policy file without `-Apply` and without a backup. The command now stops before writing anything; export or report to a different file.
+
 - The README demo now plays inline as an animated clip instead of a still preview image.
 
 ## 0.9.2 - 2026-11-13
