@@ -107,22 +107,22 @@ Optional add-ons:
 
 ## Turn Off One Feature
 
-Each command is a preview. Add `-Apply` to write the policy, then restart Brave.
+Each command is a preview and names the policies it would set. Add `-Apply` to write them, then restart Brave.
 
-| I want to | Command | Policy set |
-| --- | --- | --- |
-| Disable Brave Rewards and BAT prompts permanently | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Rewards` | `BraveRewardsDisabled` |
-| Remove the Brave Wallet icon and prompts | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Wallet` | `BraveWalletDisabled` |
-| Hide Brave VPN | `.\Invoke-BraveDebloat.ps1 -OnlyFeature VPN` | `BraveVPNDisabled` |
-| Turn off Leo AI (sidebar, address bar, context menu) | `.\Invoke-BraveDebloat.ps1 -OnlyFeature LeoAI` | `BraveAIChatEnabled` |
-| Remove Brave News from the new tab page | `.\Invoke-BraveDebloat.ps1 -OnlyFeature News` | `BraveNewsDisabled` |
-| Disable Brave Talk | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Talk` | `BraveTalkDisabled` |
-| Disable Playlist | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Playlist` | `BravePlaylistEnabled` |
-| Disable Email Aliases | `.\Invoke-BraveDebloat.ps1 -OnlyFeature EmailAliases` | `EmailAliasesEnabled` |
-| Stop Brave telemetry (P3A, stats ping, Web Discovery) | `.\Invoke-BraveDebloat.ps1 -OnlyFeature BraveTelemetry` | `BraveP3AEnabled`, `BraveStatsPingEnabled`, `BraveWebDiscoveryEnabled` |
-| Stop Chromium metrics and URL-keyed data collection | `.\Invoke-BraveDebloat.ps1 -OnlyFeature ChromiumTelemetry` | `MetricsReportingEnabled`, `UrlKeyedAnonymizedDataCollectionEnabled` |
-| Hide sponsored new tab backgrounds and cards | `.\Invoke-BraveDebloat.ps1 -OnlyFeature NewTabBackgrounds,NewTabCards -IncludeProfilePreferences` | `NTPCardsVisible` plus profile preferences |
-| Force secure DNS through a resolver of my choice | `.\Invoke-BraveDebloat.ps1 -DnsOverHttps Secure -DnsOverHttpsTemplates https://dns.quad9.net/dns-query` | `DnsOverHttpsMode`, `DnsOverHttpsTemplates` |
+| I want to | Command |
+| --- | --- |
+| Disable Brave Rewards and BAT prompts permanently | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Rewards` |
+| Remove the Brave Wallet icon and prompts | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Wallet` |
+| Hide Brave VPN | `.\Invoke-BraveDebloat.ps1 -OnlyFeature VPN` |
+| Turn off Leo AI (sidebar, address bar, context menu) | `.\Invoke-BraveDebloat.ps1 -OnlyFeature LeoAI` |
+| Remove Brave News from the new tab page | `.\Invoke-BraveDebloat.ps1 -OnlyFeature News` |
+| Disable Brave Talk | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Talk` |
+| Disable Playlist | `.\Invoke-BraveDebloat.ps1 -OnlyFeature Playlist` |
+| Disable Email Aliases | `.\Invoke-BraveDebloat.ps1 -OnlyFeature EmailAliases` |
+| Stop Brave telemetry (P3A, stats ping, Web Discovery) | `.\Invoke-BraveDebloat.ps1 -OnlyFeature BraveTelemetry` |
+| Stop Chromium metrics and URL-keyed data collection | `.\Invoke-BraveDebloat.ps1 -OnlyFeature ChromiumTelemetry` |
+| Hide sponsored new tab backgrounds and cards | `.\Invoke-BraveDebloat.ps1 -OnlyFeature NewTabBackgrounds,NewTabCards -IncludeProfilePreferences` |
+| Force secure DNS through a resolver of my choice | `.\Invoke-BraveDebloat.ps1 -DnsOverHttps Secure -DnsOverHttpsTemplates https://dns.quad9.net/dns-query` |
 
 Combine several with commas (`-OnlyFeature Rewards,Wallet,VPN,LeoAI`), or start from a preset and keep what you like with `-ExcludeFeature News,LeoAI`. `-ListFeatures` prints every feature name.
 
