@@ -274,8 +274,9 @@ if (-not [string]::IsNullOrWhiteSpace($PolicyPath) -and $policyTarget.Kind -noti
     Write-Warning "-PolicyPath is ignored for $platformName $Scope policies, which are written to $($policyTarget.Path). It only selects a file for Linux or macOS LocalMachine targets."
 }
 
-# An export or report file is written without -Apply and without a backup, so it must never be a file
-# Brave reads its policies from. Checked before anything is written, also for -WhatIf.
+# An export is written without -Apply or a backup, and a report is written in a preview as well as
+# after -Apply, never through the policy backup. Neither may be a file Brave reads its policies from.
+# Checked before anything is written, also for -WhatIf.
 if ($exportRequested) {
     Assert-PolicyOutputPath -ParameterName 'ExportPolicyPath' -Path $ExportPolicyPath -Target $policyTarget
 }

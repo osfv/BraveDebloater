@@ -51,22 +51,47 @@ foreach ($case in @(@{ Platform = 'Linux'; Scope = 'CurrentUser'; Name = 'live.j
     if ((Get-Utf8FileContent -Path $livePolicy) -cne $guardOriginal) { throw "$($case.Platform) export next to the policy file changed it." }
 }
 
-# The same file reached through a symlinked folder is refused too. Skipped where symlinks need extra rights.
+# The same file reached through a symlinked folder is refused too, and so is a policy folder whose
+# entries are symlinks, in both directions. Skipped where symlinks need extra rights.
 $livePolicy = Join-Path $guardDirectory 'live.json'
 $linkedDirectory = Join-Path $TempRoot 'output-guard-link'
-$linkCreated = $false
+$policyFolder = Join-Path $TempRoot 'output-guard-policies'
+$outsideFolder = Join-Path $TempRoot 'output-guard-outside'
+$outsideFile = Join-Path $outsideFolder 'real.json'
+foreach ($directory in @($outsideFolder, (Join-Path $outsideFolder 'managed'), (Join-Path $policyFolder 'recommended'))) { New-DirectoryLiteral -Path $directory }
+Set-TextFileContent -Path $outsideFile -Content $guardOriginal
+$linksCreated = $false
 try {
     New-Item -ItemType SymbolicLink -Path $linkedDirectory -Target $guardDirectory -ErrorAction Stop | Out-Null
-    $linkCreated = $true
+    New-Item -ItemType SymbolicLink -Path (Join-Path $policyFolder 'managed') -Target (Join-Path $outsideFolder 'managed') -ErrorAction Stop | Out-Null
+    New-Item -ItemType SymbolicLink -Path (Join-Path $policyFolder 'recommended/linked.json') -Target $outsideFile -ErrorAction Stop | Out-Null
+    $linksCreated = $true
 }
-catch { Write-Host 'Skipped the symlink export check: this session cannot create symlinks.' }
-if ($linkCreated) {
-    try {
+catch { Write-Host 'Skipped the symlink export checks: this session cannot create symlinks.' }
+try {
+    if ($linksCreated) {
         $message = Get-OutputGuardMessage -Parameters @{ Platform = 'Linux'; OnlyFeature = 'Rewards'; PolicyPath = $livePolicy; ExportPolicyPath = (Join-Path $linkedDirectory 'live.json') }
         if ($message -notlike '*is the Brave policy file this command targets*') { throw "Export through a symlinked folder was not refused: $message" }
         if ((Get-Utf8FileContent -Path $livePolicy) -cne $guardOriginal) { throw 'Export through a symlinked folder overwrote the policy file.' }
+
+        $unrelatedTarget = [pscustomobject]@{ Platform = 'Windows'; Kind = 'Registry'; Path = 'HKCU:\Software\Policies\BraveSoftware\Brave' }
+        $locations = @(foreach ($directory in @($policyFolder, (Join-Path $policyFolder 'managed'), (Join-Path $policyFolder 'recommended'))) { @{ Directory = $directory; Leaf = '*' } })
+        foreach ($refused in @((Join-Path $policyFolder 'managed/new.json'), (Join-Path $outsideFolder 'managed/new.json'), (Join-Path $policyFolder 'recommended/new.json'), (Join-Path $policyFolder 'recommended/linked.json'), $outsideFile)) {
+            if ((Get-PolicyOutputPathConflict -Path $refused -Target $unrelatedTarget -PolicyLocations $locations) -eq '') { throw "An output path linked to a policy folder was allowed: $refused" }
+        }
+        foreach ($allowed in @((Join-Path $outsideFolder 'other.json'), (Join-Path $guardDirectory 'new.json'))) {
+            $conflict = Get-PolicyOutputPathConflict -Path $allowed -Target $unrelatedTarget -PolicyLocations $locations
+            if ($conflict -ne '') { throw "An output path outside the policy folder was refused: $allowed $conflict" }
+        }
     }
-    finally { [System.IO.Directory]::Delete($linkedDirectory) }
+}
+finally {
+    # Remove the links themselves so the temp folder cleanup never follows them.
+    foreach ($link in @($linkedDirectory, (Join-Path $policyFolder 'managed'))) {
+        if ([System.IO.Directory]::Exists($link)) { [System.IO.Directory]::Delete($link) }
+    }
+    $fileLink = Join-Path $policyFolder 'recommended/linked.json'
+    if ([System.IO.File]::Exists($fileLink)) { [System.IO.File]::Delete($fileLink) }
 }
 
 # A preview report is refused the same way, before the run prints or writes anything.
@@ -78,21 +103,32 @@ foreach ($extra in @(@{}, @{ Apply = $true; NoBackup = $true })) {
     if ((Get-Utf8FileContent -Path $htmlPolicy) -cne $guardOriginal) { throw 'Report overwrote the policy file.' }
 }
 
-# Brave's own policy locations are refused whatever -Platform or -PolicyPath says. Path checks only,
-# plus -WhatIf runs that cannot write even if the guard regressed.
+# Brave's own policy locations on this host are refused whatever -Platform or -PolicyPath says: the
+# Linux policy folders on Linux, the plist names on macOS. Path checks only, plus -WhatIf runs that
+# cannot write even if the guard regressed.
 if ([System.IO.Path]::DirectorySeparatorChar -eq [char]'/') {
     $registryTarget = [pscustomobject]@{ Platform = 'Windows'; Kind = 'Registry'; Path = 'HKCU:\Software\Policies\BraveSoftware\Brave' }
     $defaultsTarget = [pscustomobject]@{ Platform = 'macOS'; Kind = 'MacOSDefaults'; Path = 'com.brave.Browser' }
     $userPlist = Join-Path $HOME 'Library/Preferences/com.brave.Browser.plist'
-    foreach ($refused in @('/etc/brave/policies/managed/BraveDebloater.json', '/etc/brave/policies/managed/other.json', '/etc/brave/policies/recommended/other.json', '/Library/Managed Preferences/com.brave.Browser.plist', '/Library/Managed Preferences/someone/com.brave.Browser.plist', $userPlist)) {
+    $linuxPaths = @('/etc/brave/policies/managed/BraveDebloater.json', '/etc/brave/policies/managed/other.json', '/etc/brave/policies/recommended/other.json')
+    $macPaths = @('/Library/Managed Preferences/com.brave.Browser.plist', '/Library/Managed Preferences/someone/com.brave.Browser.plist', $userPlist)
+    $neutralPaths = @('/Library/Managed Preferences/com.example.plist', (Join-Path $HOME 'Library/Preferences/com.example.plist'), (Join-Path $guardDirectory 'com.brave.Browser.plist'), '/etc/brave/export.json')
+    $onMac = [bool]((Get-Variable -Name IsMacOS -Scope Global -ErrorAction SilentlyContinue) -and $IsMacOS)
+    $refusedPaths = if ($onMac) { $macPaths } else { $linuxPaths }
+    $otherHostPaths = if ($onMac) { $linuxPaths } else { $macPaths }
+    foreach ($refused in $refusedPaths) {
         if ((Get-PolicyOutputPathConflict -Path $refused -Target $registryTarget) -eq '') { throw "An output path in a Brave policy location was allowed: $refused" }
     }
-    if ((Get-PolicyOutputPathConflict -Path $userPlist -Target $defaultsTarget) -notlike 'is the Brave policy file this command targets*') { throw 'The macOS user defaults file was not treated as the policy target.' }
-    foreach ($allowed in @('/Library/Managed Preferences/com.example.plist', (Join-Path $HOME 'Library/Preferences/com.example.plist'), (Join-Path $guardDirectory 'com.brave.Browser.plist'), '/etc/brave/export.json')) {
+    foreach ($allowed in @($otherHostPaths) + $neutralPaths) {
         $conflict = Get-PolicyOutputPathConflict -Path $allowed -Target $registryTarget
-        if ($conflict -ne '') { throw "An output path outside Brave's policy locations was refused: $allowed $conflict" }
+        if ($conflict -ne '') { throw "An output path outside this host's Brave policy locations was refused: $allowed $conflict" }
     }
-    foreach ($parameters in @(@{ Platform = 'Linux' }, @{ Platform = 'Windows' }, @{ Platform = 'Linux'; PolicyPath = $livePolicy })) {
+    if ((Get-PolicyOutputPathConflict -Path $userPlist -Target $defaultsTarget) -notlike 'is the Brave policy file this command targets*') { throw 'The macOS user defaults file was not treated as the policy target.' }
+
+    # The default Linux policy file is the target of a Linux run on any host; other runs are refused on Linux.
+    $runs = @(@{ Platform = 'Linux' })
+    if (-not $onMac) { $runs += @(@{ Platform = 'Windows' }, @{ Platform = 'Linux'; PolicyPath = $livePolicy }) }
+    foreach ($parameters in $runs) {
         $message = Get-OutputGuardMessage -Parameters ($parameters + @{ OnlyFeature = 'Rewards'; ExportPolicyPath = '/etc/brave/policies/managed/BraveDebloater.json'; WhatIf = $true })
         if ($message -notlike "-ExportPolicyPath '*No changes were made.") { throw "Export into Brave's Linux policy folder was not refused: $message" }
     }
