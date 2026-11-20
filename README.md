@@ -26,7 +26,7 @@
 
 BraveDebloater is a free PowerShell script that switches off Brave extras such as Rewards, Wallet, VPN, Leo AI, News, and telemetry. It uses the official Brave and Chromium enterprise policies, so it does not patch Brave or install anything into it.
 
-- **Preview first.** The script only shows what it would change. Nothing is written until you add `-Apply`.
+- **Preview first.** The script only shows what it would change. It leaves Brave's policies and profile files alone until you add `-Apply`.
 - **Easy to undo.** Each apply run saves a backup, and one command restores it.
 - **Nothing hidden.** Every policy it sets is listed in `brave://policy`.
 
@@ -103,7 +103,7 @@ Optional add-ons:
 | --- | --- |
 | `-LockShields` | Enforce stricter Brave Shields defaults: ad blocking, fingerprinting protection, HTTPS upgrades, and stricter referrers. |
 | `-IncludeProfilePreferences` | Also hide some new tab, sponsored background, and toolbar items. This edits each profile's `Preferences` file, so close Brave first. |
-| `-DnsOverHttps` | Set Brave's DNS-over-HTTPS mode, with a resolver you choose. |
+| `-DnsOverHttps` | Set Brave's DNS-over-HTTPS mode, with a resolver you choose. It adds to the preset or features in the same command. See [DNS control](docs/usage.md#dns-control). |
 
 ## Turn Off One Feature
 
@@ -122,7 +122,6 @@ Each command is a preview and names the policies it would set. Add `-Apply` to w
 | Stop Brave telemetry (P3A, stats ping, Web Discovery) | `.\Invoke-BraveDebloat.ps1 -OnlyFeature BraveTelemetry` |
 | Stop Chromium metrics and URL-keyed data collection | `.\Invoke-BraveDebloat.ps1 -OnlyFeature ChromiumTelemetry` |
 | Hide sponsored new tab backgrounds and cards | `.\Invoke-BraveDebloat.ps1 -OnlyFeature NewTabBackgrounds,NewTabCards -IncludeProfilePreferences` |
-| Force secure DNS through a resolver of my choice | `.\Invoke-BraveDebloat.ps1 -DnsOverHttps Secure -DnsOverHttpsTemplates https://dns.quad9.net/dns-query` |
 
 Combine several with commas (`-OnlyFeature Rewards,Wallet,VPN,LeoAI`), or start from a preset and keep what you like with `-ExcludeFeature News,LeoAI`. `-ListFeatures` prints every feature name.
 
@@ -132,7 +131,7 @@ Combine several with commas (`-OnlyFeature Rewards,Wallet,VPN,LeoAI`), or start 
 - It does not turn off Brave Shields, add Shield allowlists, or weaken Safe Browsing. The optional `-LockShields` add-on only enforces stricter Shields defaults.
 - It does not edit your hosts file, remove extensions, patch Brave binaries, or install anything into Brave.
 - It does not run hidden. Every policy it sets is listed in `brave://policy` with its value, and `-Doctor` reports the current state read-only.
-- It does not change anything without `-Apply`. Unless you use `-NoBackup` for a policy-only run, every apply run leaves a JSON backup that `-UndoFromBackup` can restore.
+- It does not change Brave's policies or profile files without `-Apply`. A report (`-ReportPath`) or export (`-ExportPolicyPath`) is a separate file, and the script writes it in a preview too. Unless you use `-NoBackup` for a policy-only run, every apply run leaves a JSON backup that `-UndoFromBackup` can restore.
 
 ## Screenshots
 

@@ -2,7 +2,7 @@
 
 Detailed reference for `Invoke-BraveDebloat.ps1`, with examples. New here? Start with the [README](../README.md).
 
-Every command below is a preview unless it includes `-Apply`.
+Every command below leaves Brave's policies and profile files alone unless it includes `-Apply`. Commands with `-ReportPath` or `-ExportPolicyPath` write that file in a preview too; add `-WhatIf` to skip it.
 
 ## Contents
 
