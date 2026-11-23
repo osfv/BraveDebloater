@@ -1,5 +1,5 @@
 {
-  "templateVersion": "158.1.102.10",
+  "templateVersion": "159.1.102.30",
   "policies": [
     "AIModeSettings",
     "AbusiveExperienceInterventionEnforce",
@@ -313,6 +313,7 @@
     "GeminiActOnWebAllowedForURLs",
     "GeminiActOnWebBlockedForURLs",
     "GeminiActOnWebSettings",
+    "GeminiChromeFileUploadSettings",
     "GeminiSettings",
     "GeminiSparkSettings",
     "GenAILocalFoundationalModelSettings",
