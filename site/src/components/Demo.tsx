@@ -156,7 +156,7 @@ export function Demo() {
     <section id="demo" className="py-24 md:py-32">
       <div className="wrap">
         <SectionHeading title="Watch one full run">
-          A real run on Linux, cut to 34 seconds: the preview, the apply, the check in brave://policy and the undo.
+          A 34-second cut of a real Linux run: the preview, the apply, the check in brave://policy and the undo.
         </SectionHeading>
 
         <div className="mt-14 grid grid-cols-1 gap-x-10 gap-y-6 lg:grid-cols-12">

@@ -5,8 +5,8 @@ const COLUMNS = ["Survives Brave updates", "Visible in brave://policy", "Undo", 
 
 const ROWS = [
   { name: "BraveDebloater policies", cells: ["Yes", "Yes", "Backup restore", "No"], ours: true },
-  { name: "brave://settings toggles", cells: ["Often reset or re-promoted", "No", "Manual", "No"] },
-  { name: "A random .reg gist", cells: ["Maybe", "If the gist used policies", "Only if you kept a copy", "Sometimes"] },
+  { name: "brave://settings toggles", cells: ["Updates can reset them", "No", "Manual", "No"] },
+  { name: "A random .reg gist", cells: ["Maybe", "If the gist used policies", "Needs a copy you kept", "Sometimes"] },
   {
     name: "Scripts that disable Shields or updates",
     cells: ["Yes, but they weaken Brave", "Yes", "Painful", "Sometimes"],

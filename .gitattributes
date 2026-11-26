@@ -1,6 +1,8 @@
 * text=auto
 .gitattributes text eol=lf
 *.ps1 text eol=crlf
+# A CR after the shebang breaks ./Invoke-BraveDebloat.ps1 on macOS and Linux.
+Invoke-BraveDebloat.ps1 text eol=lf
 *.json text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf

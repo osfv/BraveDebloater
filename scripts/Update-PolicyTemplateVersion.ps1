@@ -78,14 +78,16 @@ if ([string]::IsNullOrWhiteSpace($oldVersion)) {
     throw "Could not find policyTemplateVersion in $manifestPath."
 }
 
-$manifestText = [regex]::Replace($manifestText, '"policyTemplateVersion":\s*"[^"]+"', ('"policyTemplateVersion": "{0}"' -f $templateVersion), 1)
+# Static [regex]::Replace has no count overload: a trailing 1 binds to RegexOptions.IgnoreCase and replaces
+# every match. The instance Replace takes the count.
+$manifestText = ([regex]'"policyTemplateVersion":\s*"[^"]+"').Replace($manifestText, ('"policyTemplateVersion": "{0}"' -f $templateVersion), 1)
 Set-Utf8NoBomText -Path $manifestPath -Content $manifestText
 
 $docText = Get-Content -LiteralPath $validationDocPath -Raw
 # Only the template evidence lines follow the zip. "What Changed" describes the last policy change and is
 # written by hand, so a version-only update must not rewrite it.
-$docText = [regex]::Replace($docText, 'Template version: `[^`]+`', ('Template version: `{0}`' -f $templateVersion), 1)
-$docText = [regex]::Replace($docText, '(Archive `VERSION` entry timestamp: )[^\r\n]+', ('${1}' + $versionDate), 1)
+$docText = ([regex]'Template version: `[^`]+`').Replace($docText, ('Template version: `{0}`' -f $templateVersion), 1)
+$docText = ([regex]'(Archive `VERSION` entry timestamp: )[^\r\n]+').Replace($docText, ('${1}' + $versionDate), 1)
 Set-Utf8NoBomText -Path $validationDocPath -Content $docText
 
 Write-Host "Updated policy template version from $oldVersion to $templateVersion."
