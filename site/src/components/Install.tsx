@@ -23,7 +23,7 @@ const TABS = [
   {
     id: "manual",
     label: "Manual",
-    command: "Get-FileHash .\\BraveDebloater-vX.Y.Z.zip -Algorithm SHA256",
+    command: "Get-FileHash .\\BraveDebloater-v*.zip -Algorithm SHA256",
     note: "Download the zip from the latest release, compare its hash with SHA256SUMS.txt, then extract it to a folder you control.",
     link: { href: RELEASES, label: "Open the latest release" },
   },

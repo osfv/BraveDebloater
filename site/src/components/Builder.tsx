@@ -156,6 +156,7 @@ export function Builder() {
                   key={name}
                   type="button"
                   aria-pressed={activePreset === name}
+                  aria-label={`${name}, ${presetIds[name].length} features`}
                   onClick={() => choosePreset(name)}
                   className={cn(
                     "relative h-9 rounded-[0.4rem] px-3.5 text-[0.9375rem] font-medium transition-colors duration-200",
@@ -303,6 +304,7 @@ export function Builder() {
                 {apply
                   ? "This run saves a backup, then writes the policies. Restart Brave when it finishes."
                   : "This run prints the plan and changes nothing."}{" "}
+                {apply && launcher.id === "script" && "On Linux, start it with sudo pwsh. "}
                 {launcher.hint}
               </p>
             </div>
