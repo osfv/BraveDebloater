@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.9.3 - 2026-11-26
+
+- Recorded Brave policy template `159.1.102.30`. It adds `GeminiChromeFileUploadSettings`; no policy BraveDebloater manages was removed, deprecated, or retyped.
+
 - `./Invoke-BraveDebloat.ps1` now runs directly from a macOS or Linux shell. The script was checked out and archived with Windows line endings, so the `#!/usr/bin/env pwsh` line failed with `/usr/bin/env: 'pwsh\r': No such file or directory`. `pwsh ./Invoke-BraveDebloat.ps1` and runs from inside PowerShell already worked.
 
 - `-ExportPolicyPath` and `-ReportPath` now refuse a path that is Brave's policy file: the `-PolicyPath` file or default policy file of the run (also through another spelling or a symlink), any file in `/etc/brave/policies` on Linux (also when `managed` or `recommended` is a symlink), and Brave's managed and user preference plists on macOS. Previously a preview such as `-PolicyPath ./brave.json -ExportPolicyPath ./brave.json` replaced that policy file without `-Apply` and without a backup. The command now stops before writing anything; export or report to a different file.
