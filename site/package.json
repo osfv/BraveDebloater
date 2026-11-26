@@ -20,7 +20,7 @@
     "motion": "14.14.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "simple-icons": "16.38.0"
+    "simple-icons": "16.38.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.5",
