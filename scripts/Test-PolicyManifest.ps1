@@ -63,9 +63,12 @@ function Test-PolicyTemplateVersionUpdater {
         New-Item -ItemType Directory -Path (Join-Path $tempRoot 'docs') -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $root 'scripts/Update-PolicyTemplateVersion.ps1') -Destination (Join-Path $tempRoot 'scripts/Update-PolicyTemplateVersion.ps1')
         Copy-Item -LiteralPath (Join-Path $root 'scripts/PolicyTemplateVersion.ps1') -Destination (Join-Path $tempRoot 'scripts/PolicyTemplateVersion.ps1')
-        Set-Content -LiteralPath (Join-Path $tempRoot 'config/policies.json') -Value '{"policyTemplateVersion": "0.0.0.0"}' -Encoding UTF8
+        # Second matches, one differing in case, must survive: the updater replaces only the first match.
+        $laterManifestVersion = '"example": {"policyTemplateVersion": "9.9.9.9"}, "cased": {"PolicyTemplateVersion": "8.8.8.8"}'
+        Set-Content -LiteralPath (Join-Path $tempRoot 'config/policies.json') -Value ('{"policyTemplateVersion": "0.0.0.0", ' + $laterManifestVersion + '}') -Encoding UTF8
         $history = 'The manifest version in `config/policies.json` changed from `155.1.99.2` to `0.0.0.0`.'
-        Set-Content -LiteralPath (Join-Path $tempRoot 'docs/debloatable-validation.md') -Value @('- Template version: `0.0.0.0`', '- Archive `VERSION` entry timestamp: January 1, 2000', '', $history) -Encoding UTF8
+        $laterDocLines = @('- Template version: `9.9.9.9`', '- archive `version` entry timestamp: March 3, 2003', '- Archive `VERSION` entry timestamp: March 3, 2003')
+        Set-Content -LiteralPath (Join-Path $tempRoot 'docs/debloatable-validation.md') -Value (@('- Template version: `0.0.0.0`', '- Archive `VERSION` entry timestamp: January 1, 2000', '', $history, '') + $laterDocLines) -Encoding UTF8
 
         $zipRoot = Join-Path $tempRoot 'zip'
         New-Item -ItemType Directory -Path $zipRoot -Force | Out-Null
@@ -76,9 +79,13 @@ function Test-PolicyTemplateVersionUpdater {
         [System.IO.Compression.ZipFile]::CreateFromDirectory($zipRoot, $zipPath)
 
         & (Join-Path $tempRoot 'scripts/Update-PolicyTemplateVersion.ps1') -TemplateZipPath $zipPath *> $null
-        $updated = Get-Content -LiteralPath (Join-Path $tempRoot 'config/policies.json') -Raw | ConvertFrom-Json
+        $manifestText = Get-Content -LiteralPath (Join-Path $tempRoot 'config/policies.json') -Raw
+        $updated = $manifestText | ConvertFrom-Json
         if ([string]$updated.policyTemplateVersion -ne '1.2.3.4') {
             throw 'Update-PolicyTemplateVersion.ps1 did not assemble shuffled VERSION keys by name.'
+        }
+        if (-not $manifestText.Contains($laterManifestVersion)) {
+            throw 'Update-PolicyTemplateVersion.ps1 rewrote a later policyTemplateVersion in config/policies.json.'
         }
         $doc = Get-Content -LiteralPath (Join-Path $tempRoot 'docs/debloatable-validation.md') -Raw
         if (-not $doc.Contains('- Template version: `1.2.3.4`')) {
@@ -90,6 +97,11 @@ function Test-PolicyTemplateVersionUpdater {
         if (-not $doc.Contains($history)) {
             throw 'Update-PolicyTemplateVersion.ps1 rewrote the "What Changed" history in docs/debloatable-validation.md.'
         }
+        foreach ($line in $laterDocLines) {
+            if (-not $doc.Contains($line)) {
+                throw "Update-PolicyTemplateVersion.ps1 rewrote a later evidence line in docs/debloatable-validation.md: $line"
+            }
+        }
         foreach ($updatedPath in @((Join-Path $tempRoot 'config/policies.json'), (Join-Path $tempRoot 'docs/debloatable-validation.md'))) {
             $bytes = [System.IO.File]::ReadAllBytes($updatedPath)
             if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xef -and $bytes[1] -eq 0xbb -and $bytes[2] -eq 0xbf) {
@@ -100,6 +112,24 @@ function Test-PolicyTemplateVersionUpdater {
     finally {
         if (Test-Path -LiteralPath $tempRoot) {
             Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
+    }
+}
+
+function Test-EntrypointShebang {
+    $entrypoint = Join-Path $root 'Invoke-BraveDebloat.ps1'
+    $bytes = [System.IO.File]::ReadAllBytes($entrypoint)
+    $newline = [array]::IndexOf($bytes, [byte]10)
+    if ($newline -lt 1 -or $bytes[$newline - 1] -eq 13) {
+        throw 'Invoke-BraveDebloat.ps1 must start with an LF-terminated shebang line. Check its eol entry in .gitattributes.'
+    }
+
+    # Launch through the kernel's shebang handling, not PowerShell, so a CR in the shebang fails here.
+    $onWindows = [System.IO.Path]::DirectorySeparatorChar -eq '\'
+    if (-not $onWindows) {
+        $output = & /bin/sh -c 'exec "$1" -Version' sh $entrypoint 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0 -or $output -notmatch 'BraveDebloater \d') {
+            throw "./Invoke-BraveDebloat.ps1 -Version failed from /bin/sh (exit $LASTEXITCODE): $($output.Trim())"
         }
     }
 }
@@ -368,6 +398,7 @@ foreach ($scriptFile in $scriptFiles) {
 }
 
 Test-PolicyTemplateVersionUpdater
+Test-EntrypointShebang
 Test-PolicyTemplateComparer
 
 Write-Host 'Policy manifest and PowerShell syntax checks passed.'
