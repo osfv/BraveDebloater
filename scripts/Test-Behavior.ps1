@@ -2031,7 +2031,10 @@ try {
 
         # An absolute XDG_CONFIG_HOME moves the Brave profile folder; a relative one is ignored.
         $savedConfigHome = $env:XDG_CONFIG_HOME
+        $savedSudoUid = $env:SUDO_UID
         try {
+            # These cases expect HOME, also when the checks themselves run under sudo.
+            $env:SUDO_UID = $null
             $env:XDG_CONFIG_HOME = '/custom/config'
             $xdgRoot = Get-DefaultProfileRoot -PlatformName Linux -Channel Beta
             if ($xdgRoot -cne (Join-Path '/custom/config' 'BraveSoftware/Brave-Browser-Beta')) {
@@ -2045,47 +2048,54 @@ try {
         }
         finally {
             $env:XDG_CONFIG_HOME = $savedConfigHome
+            $env:SUDO_UID = $savedSudoUid
         }
 
         # Under sudo, HOME is root's folder, but the profile to clean belongs to the user who ran sudo.
         function Test-SudoProfileRoot {
-            param([string]$SudoUser, [bool]$IsRoot, [string]$Entry, [string]$ExpectedHome)
+            param([string]$SudoUid, [bool]$IsRoot, [string]$Entry, [string]$ExpectedHome)
             function Test-IsAdministrator { return $IsRoot }
-            function Get-PasswdEntry { param([string]$UserName) return $Entry }
-            $savedSudoUser = $env:SUDO_USER
+            function Get-PasswdEntry { param([string]$UserId) return $Entry }
+            $savedSudoUid = $env:SUDO_UID
             $savedConfigHome = $env:XDG_CONFIG_HOME
             try {
-                $env:SUDO_USER = $SudoUser
+                $env:SUDO_UID = $SudoUid
                 $env:XDG_CONFIG_HOME = $null
                 $sudoHome = Get-SudoUserHome
                 $sudoRoot = Get-DefaultProfileRoot -PlatformName Linux
+                $sudoNote = Get-SudoProfileRootNote -PlatformName Linux -ProfileRoot $sudoRoot
                 $env:XDG_CONFIG_HOME = '/custom/config'
                 $xdgRoot = Get-DefaultProfileRoot -PlatformName Linux
+                $xdgNote = Get-SudoProfileRootNote -PlatformName Linux -ProfileRoot $xdgRoot
             }
             finally {
-                $env:SUDO_USER = $savedSudoUser
+                $env:SUDO_UID = $savedSudoUid
                 $env:XDG_CONFIG_HOME = $savedConfigHome
             }
             if ($sudoHome -cne $ExpectedHome) {
-                throw "sudo user '$SudoUser' (root: $IsRoot, passwd: '$Entry') resolved to home '$sudoHome' instead of '$ExpectedHome'."
+                throw "SUDO_UID '$SudoUid' (root: $IsRoot, passwd: '$Entry') resolved to home '$sudoHome' instead of '$ExpectedHome'."
+            }
+            if ([bool]$ExpectedHome -ne $sudoNote.Contains('who ran sudo') -or $xdgNote -ne '') {
+                throw "SUDO_UID '$SudoUid' (root: $IsRoot) got the wrong profile root note: '$sudoNote' / '$xdgNote'"
             }
             $expectedBase = if ($ExpectedHome) { $ExpectedHome } else { $HOME }
             if (-not [string]::IsNullOrWhiteSpace($expectedBase) -and $sudoRoot -cne (Join-Path $expectedBase '.config/BraveSoftware/Brave-Browser')) {
-                throw "sudo user '$SudoUser' (root: $IsRoot) got the Linux profile root '$sudoRoot'."
+                throw "SUDO_UID '$SudoUid' (root: $IsRoot) got the Linux profile root '$sudoRoot'."
             }
             if ($xdgRoot -cne (Join-Path '/custom/config' 'BraveSoftware/Brave-Browser')) {
                 throw "An absolute XDG_CONFIG_HOME did not win over the sudo user's home: $xdgRoot"
             }
         }
         $aliceEntry = 'alice:x:1000:1000:Alice:/home/alice:/bin/bash'
-        Test-SudoProfileRoot -SudoUser 'alice' -IsRoot $true -Entry $aliceEntry -ExpectedHome '/home/alice'
-        Test-SudoProfileRoot -SudoUser 'alice' -IsRoot $false -Entry $aliceEntry -ExpectedHome ''
-        Test-SudoProfileRoot -SudoUser '' -IsRoot $true -Entry $aliceEntry -ExpectedHome ''
-        Test-SudoProfileRoot -SudoUser 'root' -IsRoot $true -Entry 'root:x:0:0:root:/root:/bin/bash' -ExpectedHome ''
-        Test-SudoProfileRoot -SudoUser 'alice' -IsRoot $true -Entry '' -ExpectedHome ''
-        Test-SudoProfileRoot -SudoUser 'alice' -IsRoot $true -Entry 'alice2:x:1001:1001::/home/alice2:/bin/bash' -ExpectedHome ''
-        Test-SudoProfileRoot -SudoUser 'alice' -IsRoot $true -Entry 'alice:x:1000:1000::relative/home:/bin/bash' -ExpectedHome ''
-        Test-SudoProfileRoot -SudoUser 'alice;id' -IsRoot $true -Entry $aliceEntry -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $true -Entry $aliceEntry -ExpectedHome '/home/alice'
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $true -Entry 'CORP\alice:*:1000:1000::/home/alice:/bin/bash' -ExpectedHome '/home/alice'
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $false -Entry $aliceEntry -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '' -IsRoot $true -Entry $aliceEntry -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '0' -IsRoot $true -Entry 'root:x:0:0:root:/root:/bin/bash' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $true -Entry '' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $true -Entry 'bob:x:1001:1001::/home/bob:/bin/bash' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $true -Entry 'alice:x:1000:1000::relative/home:/bin/bash' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '1000;id' -IsRoot $true -Entry $aliceEntry -ExpectedHome ''
 
         # Where sudo needs no password (CI runners), check the real thing with a read-only run.
         $sudoWorks = $false
@@ -2101,7 +2111,7 @@ try {
             }
             $sudoDoctorOutput = (& sudo -n env @sudoEnvironment (Get-Process -Id $PID).Path -NoProfile -File $scriptPath -Doctor -BackupDirectory $doctorBackupDirectory 2>&1 | Out-String -Width 4096)
             $global:LASTEXITCODE = 0
-            Assert-TextContains -Text $sudoDoctorOutput -Expected (Join-Path (Get-PasswdEntry -UserName ([Environment]::UserName)).Split(':')[5] '.config/BraveSoftware/Brave-Browser') -Context 'sudo -Doctor profile root'
+            Assert-TextContains -Text $sudoDoctorOutput -Expected (Join-Path (Get-PasswdEntry -UserId ([string](& id -u))).Split(':')[5] '.config/BraveSoftware/Brave-Browser') -Context 'sudo -Doctor profile root'
         }
 
         # xdg-open must receive a report path with spaces as one argument.

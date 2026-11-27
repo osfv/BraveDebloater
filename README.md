@@ -72,7 +72,12 @@ The installer prints the folder it used. Open PowerShell in that folder for the 
 .\Invoke-BraveDebloat.ps1 -Apply
 ```
 
-On Linux the policy file lives in `/etc/brave/policies/managed` and applies to every user on the computer, so run the apply and undo commands with `sudo pwsh`.
+On Linux the policy file lives in `/etc/brave/policies/managed` and applies to every user on the computer. Previews work as shown. Apply and undo (step 5) need root:
+
+```powershell
+sudo pwsh ./Invoke-BraveDebloat.ps1 -Apply
+sudo pwsh ./Invoke-BraveDebloat.ps1 -UndoFromBackup Latest -Apply
+```
 
 **4. Restart Brave.** Open `brave://policy` to see the policies that loaded.
 

@@ -41,7 +41,7 @@ Keep user-facing messages short, concrete, and action-oriented. Say what happene
 
 A profile preference patch must name a preference the current Brave release registers. Check `brave/brave-core` first: Brave deletes preferences it has migrated away from on launch.
 
-Under `sudo` on Linux, `HOME` is root's. Resolve profile folders through `Get-DefaultProfileRoot`, which uses the `SUDO_USER` home.
+Under `sudo` on Linux, `HOME` is root's. Resolve profile folders through `Get-DefaultProfileRoot`, which uses the home of the `SUDO_UID` account. Call system tools by absolute path there.
 
 When adding or changing policies, update:
 

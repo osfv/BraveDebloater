@@ -27,16 +27,18 @@ function Resolve-PlatformName {
 }
 
 function Get-PasswdEntry {
-    param([Parameter(Mandatory = $true)][string]$UserName)
+    param([Parameter(Mandatory = $true)][string]$UserId)
 
-    # getent also answers for directory accounts (LDAP, SSSD) that /etc/passwd does not list.
+    # getent also answers for directory accounts (LDAP, SSSD) that /etc/passwd does not list. It runs
+    # from its system path only: under sudo, PATH may still be the one of the user who ran sudo.
     $entry = ''
-    if (Get-Command -Name getent -CommandType Application -ErrorAction SilentlyContinue) {
-        $entry = [string](@(& getent passwd $UserName 2>$null) | Select-Object -First 1)
+    $getent = @('/usr/bin/getent', '/bin/getent') | Where-Object { [System.IO.File]::Exists($_) } | Select-Object -First 1
+    if ($getent) {
+        $entry = [string](@(& $getent passwd $UserId 2>$null) | Select-Object -First 1)
         $global:LASTEXITCODE = 0
     }
     if ([string]::IsNullOrWhiteSpace($entry) -and [System.IO.File]::Exists('/etc/passwd')) {
-        $entry = [string](@([System.IO.File]::ReadAllLines('/etc/passwd')) | Where-Object { $_.StartsWith("$($UserName):") } | Select-Object -First 1)
+        $entry = [string](@([System.IO.File]::ReadAllLines('/etc/passwd')) | Where-Object { $_ -match "^[^:]*:[^:]*:$($UserId):" } | Select-Object -First 1)
     }
     return $entry
 }
@@ -44,16 +46,31 @@ function Get-PasswdEntry {
 function Get-SudoUserHome {
     # sudo runs the script as root, and on most Linux systems it also sets HOME to root's folder.
     # The Brave profile to clean belongs to the user who ran sudo. Returns that user's home folder,
-    # or '' when this is not a sudo session.
-    $userName = [string]$env:SUDO_USER
-    if ($userName -eq 'root' -or $userName -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.@-]*\$?$' -or -not (Test-IsAdministrator)) {
+    # or '' when this is not a sudo session. SUDO_UID finds the account whatever its name looks like
+    # (a directory account can be DOMAIN\alice).
+    $userId = [string]$env:SUDO_UID
+    if ($userId -notmatch '\A[1-9][0-9]*\z' -or -not (Test-IsAdministrator)) {
         return ''
     }
-    $fields = @((Get-PasswdEntry -UserName $userName).Split(':'))
-    if ($fields.Count -ge 6 -and $fields[0] -ceq $userName -and $fields[5].StartsWith('/')) {
+    $fields = @((Get-PasswdEntry -UserId $userId).Split(':'))
+    if ($fields.Count -ge 6 -and $fields[2] -ceq $userId -and $fields[5].StartsWith('/')) {
         return $fields[5]
     }
     return ''
+}
+
+function Get-SudoProfileRootNote {
+    param(
+        [string]$PlatformName,
+        [string]$ProfileRoot
+    )
+
+    # Says whose profile a sudo run picked, or '' when the default root does not come from sudo.
+    $userHome = if ($PlatformName -eq 'Linux') { Get-SudoUserHome } else { '' }
+    if ([string]::IsNullOrWhiteSpace($userHome) -or [string]::IsNullOrWhiteSpace($ProfileRoot) -or -not (Test-PathIsUnderDirectory -Path $ProfileRoot -Directory $userHome)) {
+        return ''
+    }
+    return "Profile root: $ProfileRoot, the Brave profile of '$($env:SUDO_USER)', who ran sudo. Pass -ProfileRoot to pick another folder."
 }
 
 function Get-DefaultProfileRoot {

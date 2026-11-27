@@ -131,10 +131,7 @@ try {
     $sudoProfileNote = ''
     if ([string]::IsNullOrWhiteSpace($ProfileRoot)) {
         $ProfileRoot = Get-DefaultProfileRoot -PlatformName $platformName -Channel $Channel
-        $sudoUserHome = if ($platformName -eq 'Linux') { Get-SudoUserHome } else { '' }
-        if (-not [string]::IsNullOrWhiteSpace($sudoUserHome) -and (Test-PathIsUnderDirectory -Path $ProfileRoot -Directory $sudoUserHome)) {
-            $sudoProfileNote = "Profile root: $ProfileRoot, the Brave profile of '$($env:SUDO_USER)', who ran sudo. Pass -ProfileRoot to pick another folder."
-        }
+        $sudoProfileNote = Get-SudoProfileRootNote -PlatformName $platformName -ProfileRoot $ProfileRoot
     }
     $applyChanges = $Apply -and -not $WhatIfPreference
     $isWhatIf = $Apply -and $WhatIfPreference
