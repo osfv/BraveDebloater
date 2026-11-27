@@ -157,6 +157,58 @@ try {
     Assert-TextContains -Text $emptyMacDoctorOutput -Expected 'Other names, including pattern-only matches, were not checked.' -Context 'macOS empty scan limits'
     Assert-TextContains -Text $emptyMacDoctorOutput -Expected 'Unknown Brave policies: not fully checked.' -Context 'macOS unknown policy coverage'
 
+    # A User-level profile from an old export fills /Library/Managed Preferences/<user>/. macOS also copies
+    # System profile values there, so -Doctor must report only values the machine-wide plist lacks.
+    function Get-MacOSUserProfileDoctorOutput {
+        param([hashtable]$UserValues = @{}, [hashtable]$MachineValues = @{}, [switch]$ReadFailure, [string]$PolicyPath)
+        foreach ($module in @('Common', 'Manifest', 'PlatformPolicy', 'Backup', 'ProfilePreferences', 'Reports')) {
+            . (Join-Path $root "src/$module.ps1")
+        }
+        $doctorManifest = Get-JsonFileContent -Path (Join-Path $root 'config/policies.json')
+        $userProfilePath = Join-Path $tempRoot 'user-managed-preferences.plist'
+        Set-Content -LiteralPath $userProfilePath -Value '' -Encoding ASCII
+        function Get-MacOSUserProfilePolicyPath { return $userProfilePath }
+        function Get-PolicyValue {
+            param($Target, [string]$Name)
+            $values = if ($Target.Path -eq $userProfilePath) { $UserValues } elseif ($Target.Kind -eq 'MacOSPlist') { $MachineValues } else { @{} }
+            if ($ReadFailure -and $Target.Path -eq $userProfilePath) {
+                return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true; ErrorMessage = 'Injected profile read failure' }
+            }
+            if ($values.ContainsKey($Name)) {
+                return [pscustomobject]@{ Exists = $true; Value = $values[$Name]; Kind = 'String'; ReadError = $false }
+            }
+            return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
+        }
+        return (Show-DoctorReport -Manifest $doctorManifest -Features @($doctorManifest.features) -PolicyDefinitions (Get-ManifestMap -Object $doctorManifest.policies) -ProfileRoot $missingProfileRoot -BackupDirectory $doctorBackupDirectory -PlatformName macOS -PolicyPath $PolicyPath *>&1 | Out-String -Width 4096)
+    }
+    $userProfileValues = @{ BraveRewardsDisabled = 1; IPFSEnabled = $false; DnsOverHttpsMode = 'secure'; DnsOverHttpsTemplates = 'https://dns.quad9.net/dns-query' }
+    $userProfileDoctor = Get-MacOSUserProfileDoctorOutput -UserValues $userProfileValues
+    Assert-TextContains -Text $userProfileDoctor -Expected 'CurrentUser profile policies: found 4 value(s).' -Context 'macOS user profile -Doctor output'
+    Assert-TextContains -Text $userProfileDoctor -Expected 'CurrentUser profile: a configuration profile installed for this user only sets 4 value(s)' -Context 'macOS user profile -Doctor output'
+    Assert-TextContains -Text $userProfileDoctor -Expected 'CurrentUser profile secure (https://dns.quad9.net/dns-query)' -Context 'macOS user profile DNS status'
+    Assert-TextContains -Text $userProfileDoctor -Expected 'Obsolete leftover policies: detected in a configuration profile, which -Apply cannot change.' -Context 'macOS user profile obsolete hint'
+    Assert-TextDoesNotContain -Text $userProfileDoctor -Unexpected 'Rerun with -Apply to remove them.' -Context 'macOS user profile obsolete hint'
+    if ($userProfileDoctor -notmatch '(?m)^Rewards\s+Applied\s+Not applied\b') {
+        throw "macOS -Doctor did not count user profile values in the CurrentUser feature status: $userProfileDoctor"
+    }
+
+    # The System profile copy can list dictionary keys in another order than the machine-wide plist.
+    $machineAutofill = [pscustomobject][ordered]@{ url_pattern = '*'; blocked_types = @('contact_info', 'payments') }
+    $copiedAutofill = [pscustomobject][ordered]@{ blocked_types = @('contact_info', 'payments'); url_pattern = '*' }
+    $machineCopyDoctor = Get-MacOSUserProfileDoctorOutput -UserValues @{ BraveRewardsDisabled = 1; AutofillSettings = @($copiedAutofill) } -MachineValues @{ BraveRewardsDisabled = 1; AutofillSettings = @($machineAutofill) }
+    Assert-TextDoesNotContain -Text $machineCopyDoctor -Unexpected 'CurrentUser profile' -Context 'macOS System profile copy'
+    Assert-TextContains -Text $machineCopyDoctor -Expected 'LocalMachine policies: found 2 value(s).' -Context 'macOS System profile copy'
+
+    $policyPathDoctor = Get-MacOSUserProfileDoctorOutput -UserValues $userProfileValues -PolicyPath (Join-Path $tempRoot 'doctor-override.plist')
+    Assert-TextDoesNotContain -Text $policyPathDoctor -Unexpected 'CurrentUser profile' -Context 'macOS -Doctor -PolicyPath'
+
+    $failedProfileDoctor = Get-MacOSUserProfileDoctorOutput -UserValues $userProfileValues -ReadFailure
+    Assert-TextContains -Text $failedProfileDoctor -Expected 'CurrentUser profile policies: could not be read' -Context 'macOS user profile read failure'
+    Assert-TextContains -Text $failedProfileDoctor -Expected 'Safety check incomplete: CurrentUser profile' -Context 'macOS user profile read failure'
+    if ($failedProfileDoctor -notmatch '(?m)^Rewards\s+Read failed\b') {
+        throw "macOS -Doctor did not mark the CurrentUser feature status as unreadable: $failedProfileDoctor"
+    }
+
     function Test-MissingMacOSReader {
         . (Join-Path $root 'src/Common.ps1')
         . (Join-Path $root 'src/PlatformPolicy.ps1')
@@ -799,6 +851,7 @@ try {
     Assert-TextContains -Text $iosMobileConfig -Expected 'com.apple.ManagedClient.preferences' -Context 'iOS mobileconfig'
     Assert-TextContains -Text $iosMobileConfig -Expected 'BraveRewardsDisabled' -Context 'iOS mobileconfig'
     Assert-TextContains -Text $iosMobileConfig -Expected '<true/>' -Context 'iOS mobileconfig'
+    Assert-TextDoesNotContain -Text $iosMobileConfig -Unexpected 'PayloadScope' -Context 'iOS mobileconfig'
 
     $iosUnsupportedFailed = $false
     try {
@@ -904,6 +957,12 @@ try {
     $macAutofillExport = (& $scriptPath -Platform macOS -OnlyFeature Autofill -ExportPolicyPath $macAutofillProfile *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $macAutofillExport -Expected 'Installing it replaces the BraveDebloater profile you installed before, so export every policy you want in one command.' -Context 'macOS configuration profile export'
     Assert-TextContains -Text (Get-Content -LiteralPath $macAutofillProfile -Raw) -Expected '<key>AutofillSettings</key>' -Context 'macOS Autofill configuration profile'
+    Assert-TextContains -Text $macAutofillExport -Expected 'It applies to every user on this Mac, so macOS asks for an administrator password.' -Context 'macOS configuration profile export'
+    [xml]$macAutofillProfileXml = Get-Content -LiteralPath $macAutofillProfile -Raw
+    # Without PayloadScope=System, macOS installs the profile for one user, outside the plist -Doctor -Scope LocalMachine reads.
+    if ($macAutofillProfileXml.SelectSingleNode('/plist/dict/key[text()="PayloadScope"]/following-sibling::*[1]').InnerText -cne 'System') {
+        throw 'The macOS configuration profile export did not set PayloadScope to System.'
+    }
     $macFileAutofillPreview = (& $scriptPath -Platform macOS -Scope LocalMachine -PolicyPath (Join-Path $tempRoot 'autofill.plist') -OnlyFeature Autofill -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $macFileAutofillPreview -Expected 'Would set AutofillSettings' -Context 'macOS plist file Autofill preview'
     $linuxDefaultPreview = (& $scriptPath -Platform Linux -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)

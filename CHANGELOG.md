@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- macOS `.mobileconfig` exports now set `PayloadScope` to `System`. Without it, macOS installed the profile for the current user only, in `/Library/Managed Preferences/<user>/com.brave.Browser.plist`. Brave applied the policies as Mandatory, but `-Doctor` reported no LocalMachine policies because it reads `/Library/Managed Preferences/com.brave.Browser.plist`. The export output and the `AutofillSettings` skip message now say the profile applies to every user. `-Doctor` also reports a user-level profile from an earlier export as `CurrentUser profile` and counts its values in the CurrentUser feature status. Reported by a macOS tester.
+
 ## 0.9.4 - 2026-11-27
 
 - macOS `-Scope LocalMachine -Apply` no longer reports policies as set while writing nothing. macOS ignores `defaults write` to `/Library/Managed Preferences/com.brave.Browser.plist` and exits 0, and it clears hand-written files there at the next reboot. The run now stops before any write or backup and gives the command for a `.mobileconfig` configuration profile, which macOS keeps. Previews say the same, `-Doctor` reads that plist with `plutil` instead of `defaults`, and a restore refuses backups that target it, in a preview too and without first asking for `sudo`. Reported by a macOS tester.

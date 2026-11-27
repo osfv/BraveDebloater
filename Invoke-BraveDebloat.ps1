@@ -255,7 +255,7 @@ try {
         foreach ($name in @($policyNames | Where-Object { Test-PolicyMandatoryOnly -Definition $policyDefinitions[$_] })) {
             [void]$policyNames.Remove($name)
             [void]$skippedPolicyNames.Add($name)
-            Write-Step "Skipped $($name): Brave accepts it only as a mandatory policy, and macOS applies current-user policies as recommended. To include it, add -ExportPolicyPath ./brave.mobileconfig to this command without -Apply, then open that file and install it in System Settings > General > Device Management. $(Get-ConfigurationProfileReplaceNote)"
+            Write-Step "Skipped $($name): Brave accepts it only as a mandatory policy, and macOS applies current-user policies as recommended. To include it, add -ExportPolicyPath ./brave.mobileconfig to this command without -Apply, then open that file and install it in System Settings > General > Device Management. The profile applies to every user on this Mac. $(Get-ConfigurationProfileReplaceNote)"
         }
     }
 
@@ -314,7 +314,10 @@ try {
         $exportFormat = Export-PolicyPayload -Target $policyTarget -Payload $payload -Path $ExportPolicyPath -RemoveNames $dnsRemovePolicyNames.ToArray()
         $exportHint = switch ($exportFormat) {
             'Reg' { 'Double-click it or run `reg import` on the target Windows machine, then restart Brave.' }
-            'MobileConfig' { "Install that profile with your MDM or device manager. $(Get-ConfigurationProfileReplaceNote)" }
+            'MobileConfig' {
+                if ($platformName -eq 'macOS') { "Open that file and install it in System Settings > General > Device Management, or with your MDM. It applies to every user on this Mac, so macOS asks for an administrator password. $(Get-ConfigurationProfileReplaceNote)" }
+                else { "Install that profile with your MDM or device manager. $(Get-ConfigurationProfileReplaceNote)" }
+            }
             default { 'Apply that file with your device or policy manager.' }
         }
         Write-Step "Exported $($policyNames.Count) policy value(s) for $platformName to $ExportPolicyPath. $exportHint"
