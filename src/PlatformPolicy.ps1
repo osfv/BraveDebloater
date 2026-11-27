@@ -26,6 +26,53 @@ function Resolve-PlatformName {
     return 'Windows'
 }
 
+function Get-PasswdEntry {
+    param([Parameter(Mandatory = $true)][string]$UserId)
+
+    # getent also answers for directory accounts (LDAP, SSSD) that /etc/passwd does not list. It runs
+    # from its system path only: under sudo, PATH may still be the one of the user who ran sudo.
+    $entry = ''
+    $getent = @('/usr/bin/getent', '/bin/getent') | Where-Object { [System.IO.File]::Exists($_) } | Select-Object -First 1
+    if ($getent) {
+        $entry = [string](@(& $getent passwd $UserId 2>$null) | Select-Object -First 1)
+        $global:LASTEXITCODE = 0
+    }
+    if ([string]::IsNullOrWhiteSpace($entry) -and [System.IO.File]::Exists('/etc/passwd')) {
+        $entry = [string](@([System.IO.File]::ReadAllLines('/etc/passwd')) | Where-Object { $_ -match "^[^:]*:[^:]*:$($UserId):" } | Select-Object -First 1)
+    }
+    return $entry
+}
+
+function Get-SudoUserHome {
+    # sudo runs the script as root, and on most Linux systems it also sets HOME to root's folder.
+    # The Brave profile to clean belongs to the user who ran sudo. Returns that user's home folder,
+    # or '' when this is not a sudo session. SUDO_UID finds the account whatever its name looks like
+    # (a directory account can be DOMAIN\alice).
+    $userId = [string]$env:SUDO_UID
+    if ($userId -notmatch '\A[1-9][0-9]*\z' -or -not (Test-IsAdministrator)) {
+        return ''
+    }
+    $fields = @((Get-PasswdEntry -UserId $userId).Split(':'))
+    if ($fields.Count -ge 6 -and $fields[2] -ceq $userId -and $fields[5].StartsWith('/')) {
+        return $fields[5]
+    }
+    return ''
+}
+
+function Get-SudoProfileRootNote {
+    param(
+        [string]$PlatformName,
+        [string]$ProfileRoot
+    )
+
+    # Says whose profile a sudo run picked, or '' when the default root does not come from sudo.
+    $userHome = if ($PlatformName -eq 'Linux') { Get-SudoUserHome } else { '' }
+    if ([string]::IsNullOrWhiteSpace($userHome) -or [string]::IsNullOrWhiteSpace($ProfileRoot) -or -not (Test-PathIsUnderDirectory -Path $ProfileRoot -Directory $userHome)) {
+        return ''
+    }
+    return "Profile root: $ProfileRoot, the Brave profile of '$($env:SUDO_USER)', who ran sudo. Pass -ProfileRoot to pick another folder."
+}
+
 function Get-DefaultProfileRoot {
     param(
         [string]$PlatformName,
@@ -57,8 +104,10 @@ function Get-DefaultProfileRoot {
             if ($configHome.StartsWith('/')) {
                 return (Join-Path $configHome "BraveSoftware/$browserDirectory")
             }
-            if ([string]::IsNullOrWhiteSpace($HOME)) { return '' }
-            return (Join-Path $HOME ".config/BraveSoftware/$browserDirectory")
+            $userHome = Get-SudoUserHome
+            if ([string]::IsNullOrWhiteSpace($userHome)) { $userHome = $HOME }
+            if ([string]::IsNullOrWhiteSpace($userHome)) { return '' }
+            return (Join-Path $userHome ".config/BraveSoftware/$browserDirectory")
         }
         default { return '' }
     }
@@ -171,6 +220,20 @@ function Get-PolicyTarget {
             return [pscustomobject]@{ Platform = $PlatformName; Kind = 'MobileMDM'; Path = 'MDM profile' }
         }
     }
+}
+
+function Get-EffectiveScopeName {
+    param(
+        [Parameter(Mandatory = $true)]$Target,
+        [string]$ScopeName
+    )
+
+    # Brave on Linux reads one set of policy files for every user, as mandatory policies. It has no
+    # per-user location, so a JSON file target is machine-wide whatever -Scope says.
+    if ($Target.Kind -eq 'JsonFile') {
+        return 'LocalMachine'
+    }
+    return $ScopeName
 }
 
 function Test-MacOSManagedPreferencesPath {

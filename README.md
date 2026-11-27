@@ -72,7 +72,12 @@ The installer prints the folder it used. Open PowerShell in that folder for the 
 .\Invoke-BraveDebloat.ps1 -Apply
 ```
 
-On Linux the policy file lives in `/etc/brave`, so run the apply command with `sudo pwsh`.
+On Linux the policy file lives in `/etc/brave/policies/managed` and applies to every user on the computer. Previews work as shown. Apply and undo (step 5) need root:
+
+```powershell
+sudo pwsh ./Invoke-BraveDebloat.ps1 -Apply
+sudo pwsh ./Invoke-BraveDebloat.ps1 -UndoFromBackup Latest -Apply
+```
 
 **4. Restart Brave.** Open `brave://policy` to see the policies that loaded.
 
@@ -150,7 +155,7 @@ Read-only output from the script. Click a picture to open it full size.
 | Answer yes or no for each feature | `.\Invoke-BraveDebloat.ps1 -Customize` |
 | Save an HTML report of the run | `.\Invoke-BraveDebloat.ps1 -ReportPath .\brave-report.html` |
 | List my backups | `.\Invoke-BraveDebloat.ps1 -ListBackups` |
-| Apply for every user on this computer (needs administrator or root) | `.\Invoke-BraveDebloat.ps1 -Scope LocalMachine -Apply` |
+| Apply for every user on a Windows computer (needs administrator) | `.\Invoke-BraveDebloat.ps1 -Scope LocalMachine -Apply` |
 | Print the tool version for a bug report | `.\Invoke-BraveDebloat.ps1 -Version` |
 
 The [usage guide](docs/usage.md) explains every option.
@@ -174,7 +179,7 @@ On Windows and macOS, Brave Origin is a paid stripped-down build. This tool keep
 | --- | --- |
 | Windows | Brave policy keys in the registry |
 | macOS | `defaults` for the current user (Recommended level), or a configuration profile you export and install for the whole machine |
-| Linux | A JSON policy file in `/etc/brave/policies/managed/` |
+| Linux | A JSON policy file in `/etc/brave/policies/managed/`. It applies to every user as mandatory policy, and writing it needs `sudo`. |
 | Android, iOS/iPadOS | No local writes. `-ExportPolicyPath` creates a file for your MDM. |
 
 Details are in [Platform support](docs/usage.md#platform-support).

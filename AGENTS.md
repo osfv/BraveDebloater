@@ -6,7 +6,7 @@ PowerShell is the cross-platform runtime. Keep platform-specific writes native:
 
 - Windows: Brave registry policy keys.
 - macOS: `defaults` or managed plist policy payloads.
-- Linux: managed JSON policy files.
+- Linux: managed JSON policy files. `/etc/brave/policies/managed` is the only location: machine-wide, mandatory, root to write. Call it `LocalMachine`, never `CurrentUser`.
 - Android/iOS: export MDM payloads only; do not add local device writes.
 
 ## Code Discovery
@@ -39,6 +39,10 @@ Use existing helpers before adding new ones.
 
 Keep user-facing messages short, concrete, and action-oriented. Say what happened, whether anything changed, and what to do next.
 
+A profile preference patch must name a preference the current Brave release registers. Check `brave/brave-core` first: Brave deletes preferences it has migrated away from on launch.
+
+Under `sudo` on Linux, `HOME` is root's. Resolve profile folders through `Get-DefaultProfileRoot`, which uses the home of the `SUDO_UID` account. Call system tools by absolute path there.
+
 When adding or changing policies, update:
 
 - `config/policies.json`
@@ -53,6 +57,8 @@ Run the local checks before handing off:
 pwsh -NoProfile -File scripts/Test-PolicyManifest.ps1
 pwsh -NoProfile -File scripts/Test-Behavior.ps1
 ```
+
+CI (`.github/workflows/ci.yml`) also runs Pester 5.7.1 (`Invoke-Pester -Path ./tests -CI`), PSScriptAnalyzer 1.24.0 at `-Severity Error` on the entrypoint, `install.ps1`, `scripts`, and `src`, and the two scripts above again in Windows PowerShell 5.1 (`powershell -NoProfile -File ...`).
 
 When a Brave policy template zip is available, also run:
 
