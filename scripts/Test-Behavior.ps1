@@ -883,6 +883,10 @@ try {
         Assert-TextContains -Text $macUserAutofillPreview -Expected 'Nothing to change: every selected policy was skipped' -Context 'macOS current-user Autofill preview'
         Assert-TextDoesNotContain -Text $macUserAutofillPreview -Unexpected 'Rerun with -Apply' -Context 'macOS current-user Autofill preview'
     }
+    else {
+        Assert-TextContains -Text $macUserAutofillPreview -Expected 'to remove, no changes were made. Rerun with -Apply' -Context 'macOS current-user Autofill preview with leftovers'
+        Assert-TextDoesNotContain -Text $macUserAutofillPreview -Unexpected 'Nothing to change' -Context 'macOS current-user Autofill preview with leftovers'
+    }
     # -List and the report show the plan that runs: the skipped policy is named, not listed as set.
     $macUserAutofillList = (& $scriptPath -Platform macOS -OnlyFeature Autofill,Rewards -List *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $macUserAutofillList -Expected 'Skipped AutofillSettings' -Context 'macOS current-user Autofill -List'
