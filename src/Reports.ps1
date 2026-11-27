@@ -184,19 +184,17 @@ function Show-DoctorReport {
     # BraveDebloater 0.9.4 and earlier exported macOS profiles without PayloadScope, which macOS
     # installs for one user. Brave applies those as mandatory too, so report them instead of
     # calling the policies missing. macOS also copies System profile values into the user's
-    # folder, so only values the machine-wide plist does not set the same way count.
+    # folder, so only values the machine-wide plist does not set the same way count. -PolicyPath
+    # replaces that plist, so the comparison would be wrong and the user folder is skipped.
     $userProfileReport = $null
-    if ($currentUserTarget.Kind -eq 'MacOSDefaults') {
+    if ($currentUserTarget.Kind -eq 'MacOSDefaults' -and [string]::IsNullOrWhiteSpace($PolicyPath)) {
         $userProfileTarget = [pscustomobject]@{ Platform = 'macOS'; Kind = 'MacOSPlist'; Path = (Get-MacOSUserProfilePolicyPath) }
         if (Test-Path -LiteralPath $userProfileTarget.Path) {
             $userProfileReport = Get-PolicyReport -Target $userProfileTarget -ScopeName 'CurrentUser profile' -PolicyNames $probedPolicyNames.ToArray()
             if ($userProfileReport.CanRead -and $localMachineReport.CanRead) {
-                $machineValues = @{}
-                foreach ($entry in @($localMachineReport.Entries)) {
-                    $machineValues[[string]$entry.Name] = ConvertTo-Json -InputObject $entry.Value -Compress -Depth 10
-                }
+                $machineEntries = Get-PolicyEntryMap -Entries $localMachineReport.Entries
                 $userOnlyEntries = @($userProfileReport.Entries | Where-Object {
-                        -not $machineValues.ContainsKey([string]$_.Name) -or $machineValues[[string]$_.Name] -cne (ConvertTo-Json -InputObject $_.Value -Compress -Depth 10)
+                        -not $machineEntries.ContainsKey([string]$_.Name) -or -not (Test-JsonValuesEqual -Left $_.Value -Right $machineEntries[[string]$_.Name].Value)
                     })
                 $userProfileReport.Entries = $userOnlyEntries
             }
