@@ -262,8 +262,8 @@ jobs:
       HAS_WINGET_TOKEN: ${{ secrets.WINGET_TOKEN != '' }}
       # Pinned wingetcreate release. Update the version and hash together from
       # https://github.com/microsoft/winget-create/releases (wingetcreate.exe.txt holds the SHA256).
-      WINGETCREATE_VERSION: v1.12.13.0
-      WINGETCREATE_SHA256: 24042bd37915805615e6cf969ac57c6439124c3fe85823327f5f3fb24bd9ffea
+      WINGETCREATE_VERSION: v1.28.1.0
+      WINGETCREATE_SHA256: 63d980ba79e97042395bd6eb5992c2db9e01e9e7a8a22958a95c288f27310413
     steps:
       - name: Download package manifests
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
