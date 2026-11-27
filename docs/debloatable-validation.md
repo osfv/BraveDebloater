@@ -50,6 +50,17 @@ These official-template policies were checked and left out:
 - `DefaultBraveRemember1PStorageSetting`: changes storage behavior instead of removing an extra surface.
 - `BraveShieldsDisabledForUrls` and `BraveShieldsEnabledForUrls`: Shield URL lists stay blocked by the safety rules.
 
+## Profile Preferences
+
+Template `159.1.102.46` has no policy for sponsored new tab images, so the `NewTabBackgrounds` feature stays a profile preference patch. Its paths were checked against the Brave source (`brave/brave-core`, branches `1.95.x` to `1.101.x` and `master`, November 27, 2026):
+
+- `brave.brave_ads.sponsored.enabled` (`kSponsoredEnabled` in `components/brave_ads/core/public/prefs/pref_names.h`, default `true`) decides whether the new tab page shows sponsored images and sponsored sites. It exists from `1.96.x` on. The patch sets it to `false` and creates it when missing.
+- `brave.new_tab_page.show_branded_background_image` is the preference older builds read. From `1.96.x` on, `MigrateObsoleteProfilePrefs` in `components/ntp_background_images/common/view_counter_pref_registry.cc` copies it into `brave.brave_ads.sponsored.enabled` on launch and deletes it. A tester saw Brave 1.100.59 delete it. The patch now sets it only in profiles that still have it, so current Brave no longer gets a preference it deletes, and previews stop planning the same change on every run. `brave.new_tab_page.show_sponsored_sites` is handled the same way: the migration sets the new preference to the old images value AND the old sites value, with a missing one counted as on, so a stored old value left on would switch sponsored content back on at the first launch after an update.
+- Known gap: Brave older than 1.96 does not read `brave.brave_ads.sponsored.enabled`. A profile there that never stored the old image preference keeps sponsored images until Brave updates, then the new preference applies. Creating the old preference for those profiles would bring back the delete-on-launch behavior in every current Brave.
+- `brave.new_tab_page.show_background_image` (`kNewTabPageShowBackgroundImage`) is still registered and unchanged.
+
+`scripts/Test-PolicyManifest.ps1` fails if the sponsored patch stops creating `brave.brave_ads.sponsored.enabled` or starts creating the deleted preference again.
+
 ## Platform Notes
 
 `Windows`, `macOS`, and `Linux` are validated from the official Brave ADMX template. Brave documents desktop support for Chromium policies plus Brave-specific policies, and documents native policy storage for macOS and Linux.

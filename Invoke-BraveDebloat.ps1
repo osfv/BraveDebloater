@@ -128,8 +128,10 @@ try {
             throw '-UserSid cannot be combined with -List, -ListFeatures, or backup listing/retention options.'
         }
     }
+    $sudoProfileNote = ''
     if ([string]::IsNullOrWhiteSpace($ProfileRoot)) {
         $ProfileRoot = Get-DefaultProfileRoot -PlatformName $platformName -Channel $Channel
+        $sudoProfileNote = Get-SudoProfileRootNote -PlatformName $platformName -ProfileRoot $ProfileRoot
     }
     $applyChanges = $Apply -and -not $WhatIfPreference
     $isWhatIf = $Apply -and $WhatIfPreference
@@ -337,7 +339,11 @@ try {
     if ($Channel -ne 'Stable') {
         Write-Step "Channel: $Channel"
     }
-    Write-Step "Scope: $Scope ($($policyTarget.Path))"
+    $effectiveScope = Get-EffectiveScopeName -Target $policyTarget -ScopeName $Scope
+    Write-Step "Scope: $effectiveScope ($($policyTarget.Path))"
+    if ($policyTarget.Kind -eq 'JsonFile' -and [string]::IsNullOrWhiteSpace($PolicyPath)) {
+        Write-Step 'Linux has no per-user Brave policies: this file applies to every user on this computer as mandatory policy.'
+    }
     if ($LockShields) {
         Write-Step 'Shield baseline: enabled. Brave will keep ad blocking, standard fingerprinting protection, HTTPS upgrades, and referrer capping on by policy.'
     }
@@ -349,6 +355,9 @@ try {
     }
     if ($customFeatureRequested) {
         Write-Step "Custom features: $($selectedFeatureIds -join ', ')"
+    }
+    if ($IncludeProfilePreferences -and $sudoProfileNote) {
+        Write-Step $sudoProfileNote
     }
     if (-not $IncludeProfilePreferences -and $policyTarget.Kind -ne 'MobileMDM') {
         $profilePatchFeatures = @(Get-ProfilePatchFeatureIds -Manifest $manifest -SelectedFeatureIds $selectedFeatureIds)
@@ -420,7 +429,7 @@ try {
                 Get-ManagedPolicyJson -Path $policyTarget.Path | Out-Null
             }
         }
-        $backupPath = New-Backup -Directory $BackupDirectory -ScopeName $Scope -Target $policyTarget -PolicyNames $backupPolicyNames.ToArray() -ProfileRoot $ProfileRoot -Manifest $manifest
+        $backupPath = New-Backup -Directory $BackupDirectory -ScopeName $effectiveScope -Target $policyTarget -PolicyNames $backupPolicyNames.ToArray() -ProfileRoot $ProfileRoot -Manifest $manifest
         Write-Step "Backup written to $backupPath"
     }
 
@@ -573,7 +582,7 @@ try {
                     'Preset' = if ($onlyFeatureMode) { '(none - OnlyFeature mode)' } else { $Preset }
                     'Platform' = $platformName
                     'Channel' = $Channel
-                    'Scope' = $Scope
+                    'Scope' = $effectiveScope
                     'Policy target' = $policyTarget.Path
                     'Shield baseline' = if ($LockShields) { 'Locked on by policy' } else { 'Not locked' }
                     'DNS over HTTPS' = if ($null -ne $dnsPlan) { $dnsPlan.Summary } else { 'Not managed' }

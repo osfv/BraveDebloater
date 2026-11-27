@@ -40,6 +40,7 @@ try {
     $listOutput = (& $scriptPath -Preset Core -List -IncludeProfilePreferences -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $listOutput -Expected 'Profile preference patches' -Context '-List output'
     Assert-TextContains -Text $listOutput -Expected 'brave.new_tab_page.show_branded_background_image' -Context '-List output'
+    Assert-TextContains -Text $listOutput -Expected 'brave.brave_ads.sponsored.enabled' -Context '-List output'
     Assert-TextDoesNotContain -Text $listOutput -Unexpected '[dry-run]' -Context '-List output'
 
     $featureOutput = (& $scriptPath -Preset Extreme -ListFeatures *>&1 | Out-String -Width 4096)
@@ -87,6 +88,7 @@ try {
 
     $dnsDoctorWithoutOutput = (& $scriptPath -Doctor -Platform Linux -PolicyPath $dnsDoctorWithoutPath -ProfileRoot $missingProfileRoot -BackupDirectory $doctorBackupDirectory *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $dnsDoctorWithoutOutput -Expected 'DNS over HTTPS: not managed' -Context 'Doctor target without DNS policies'
+    Assert-TextDoesNotContain -Text $dnsDoctorWithoutOutput -Unexpected 'CurrentUser' -Context 'Doctor report for the single Linux policy file'
     Assert-TextDoesNotContain -Text $dnsDoctorWithoutOutput -Unexpected 'Would set' -Context 'Doctor target without DNS policies'
     Assert-TextDoesNotContain -Text $dnsDoctorWithoutOutput -Unexpected '[dry-run]' -Context 'Doctor target without DNS policies'
 
@@ -543,7 +545,9 @@ try {
     if ($skipCount -ne 2) {
         throw "Expected 2 skipped profile Preferences files, found $skipCount."
     }
-    Assert-TextContains -Text $invalidJsonOutput -Expected 'Would create brave.new_tab_page.show_branded_background_image' -Context 'valid Preferences dry-run output'
+    # A fresh profile gets the preference current Brave reads, not the one Brave deletes on launch.
+    Assert-TextContains -Text $invalidJsonOutput -Expected 'Would create brave.brave_ads.sponsored.enabled' -Context 'valid Preferences dry-run output'
+    Assert-TextDoesNotContain -Text $invalidJsonOutput -Unexpected 'brave.new_tab_page.show_branded_background_image' -Context 'valid Preferences dry-run output'
     Assert-TextContains -Text $invalidJsonOutput -Expected 'Dry-run complete.' -Context 'invalid Preferences dry-run output'
 
     $invalidJsonContentBefore = Get-Content -LiteralPath $invalidPreferences -Raw
@@ -903,7 +907,12 @@ try {
     $macFileAutofillPreview = (& $scriptPath -Platform macOS -Scope LocalMachine -PolicyPath (Join-Path $tempRoot 'autofill.plist') -OnlyFeature Autofill -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $macFileAutofillPreview -Expected 'Would set AutofillSettings' -Context 'macOS plist file Autofill preview'
     $linuxDefaultPreview = (& $scriptPath -Platform Linux -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
-    Assert-TextContains -Text $linuxDefaultPreview -Expected '/etc/brave/policies/managed/BraveDebloater.json' -Context 'unelevated Linux default path preview'
+    # Linux has one policy location for every user, so the run never calls it CurrentUser.
+    foreach ($linuxScopePreview in @($linuxDefaultPreview, (& $scriptPath -Platform Linux -Scope CurrentUser -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096))) {
+        Assert-TextContains -Text $linuxScopePreview -Expected 'Scope: LocalMachine (/etc/brave/policies/managed/BraveDebloater.json)' -Context 'unelevated Linux default path preview'
+        Assert-TextContains -Text $linuxScopePreview -Expected 'this file applies to every user on this computer as mandatory policy' -Context 'unelevated Linux default path preview'
+        Assert-TextDoesNotContain -Text $linuxScopePreview -Unexpected 'CurrentUser' -Context 'unelevated Linux default path preview'
+    }
     Assert-TextContains -Text $linuxDefaultPreview -Expected 'Dry-run complete.' -Context 'unelevated Linux default path preview'
     Assert-TextDoesNotContain -Text $linuxDefaultPreview -Unexpected 'starring it on GitHub' -Context 'unelevated Linux default path preview'
 
@@ -911,6 +920,8 @@ try {
     Assert-TextContains -Text $ignoredPolicyPathOutput -Expected '-PolicyPath is ignored for Windows CurrentUser policies' -Context 'ignored -PolicyPath output'
     $linuxPolicyPathOutput = (& $scriptPath -Platform Linux -OnlyFeature Rewards -ProfileRoot $missingProfileRoot -PolicyPath (Join-Path $tempRoot 'used.json') *>&1 | Out-String -Width 4096)
     Assert-TextDoesNotContain -Text $linuxPolicyPathOutput -Unexpected '-PolicyPath is ignored' -Context 'Linux -PolicyPath output'
+    Assert-TextContains -Text $linuxPolicyPathOutput -Expected 'Scope: LocalMachine (' -Context 'Linux -PolicyPath output'
+    Assert-TextDoesNotContain -Text $linuxPolicyPathOutput -Unexpected 'applies to every user' -Context 'Linux -PolicyPath output'
 
     # A forced Windows platform on another OS has no LOCALAPPDATA; the run must still preview cleanly.
     $forcedWindowsOutput = (& $scriptPath -Platform Windows -OnlyFeature Rewards *>&1 | Out-String -Width 4096)
@@ -946,6 +957,9 @@ try {
     # Profile copies are named after their path under the profile root, so a deep backup folder does not
     # push the copy past the 260-character limit of Windows PowerShell 5.1 file APIs.
     $utf8ProfileCopyName = Split-Path -Leaf ([string]@((Get-Content -LiteralPath $utf8Backup -Raw | ConvertFrom-Json).profileFiles)[0].backupPath)
+    if ([string](Get-Content -LiteralPath $utf8Backup -Raw | ConvertFrom-Json).scope -ne 'LocalMachine') {
+        throw 'A Linux backup did not record the machine-wide scope.'
+    }
     if ($utf8ProfileCopyName -ne 'Default_Preferences.bak') {
         throw "Profile backup copy should be named after its path under the profile root, got '$utf8ProfileCopyName'."
     }
@@ -956,11 +970,20 @@ try {
     # A profile-only feature selects no policies, so an updated Preferences file is the run's only change.
     $profileOnlyRoot = Join-Path $tempRoot 'ProfileOnlyRoot'
     New-Item -ItemType Directory -Path (Join-Path $profileOnlyRoot 'Default') -Force | Out-Null
-    [System.IO.File]::WriteAllText((Join-Path $profileOnlyRoot 'Default/Preferences'), '{"brave":{"new_tab_page":{"show_branded_background_image":true}}}', $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $profileOnlyRoot 'Default/Preferences'), '{"brave":{"new_tab_page":{"show_sponsored_sites":true}}}', $utf8NoBom)
     $profileOnlyRun = { & $scriptPath -Platform Linux -PolicyPath (Join-Path $tempRoot 'profile-only-policy.json') -OnlyFeature NewTabBackgrounds -IncludeProfilePreferences -ProfileRoot $profileOnlyRoot -BackupDirectory (Join-Path $tempRoot 'ProfileOnlyBackups') -Apply *>&1 | Out-String -Width 4096 }
     $profileOnlyOutput = & $profileOnlyRun
     Assert-TextContains -Text $profileOnlyOutput -Expected 'Updated profile preferences in' -Context 'profile-only apply output'
     Assert-TextContains -Text $profileOnlyOutput -Expected 'starring it on GitHub' -Context 'profile-only apply output'
+    # A profile from Brave older than 1.96 gets its stored old preference turned off too. Updated Brave
+    # would otherwise copy it over the new one on its first launch. The old one it lacks is not created.
+    $profileOnlyJson = [System.IO.File]::ReadAllText((Join-Path $profileOnlyRoot 'Default/Preferences'), $utf8NoBom) | ConvertFrom-Json
+    if ($profileOnlyJson.brave.brave_ads.sponsored.enabled -ne $false -or $profileOnlyJson.brave.new_tab_page.show_sponsored_sites -ne $false) {
+        throw 'NewTabBackgrounds cleanup left a sponsored new tab preference on.'
+    }
+    if ($null -ne $profileOnlyJson.brave.new_tab_page.PSObject.Properties['show_branded_background_image']) {
+        throw 'NewTabBackgrounds cleanup created the preference that Brave deletes on launch.'
+    }
     $profileOnlyRerunOutput = & $profileOnlyRun
     Assert-TextContains -Text $profileOnlyRerunOutput -Expected 'No profile preference changes needed' -Context 'unchanged profile-only apply output'
     Assert-TextDoesNotContain -Text $profileOnlyRerunOutput -Unexpected 'starring it on GitHub' -Context 'unchanged profile-only apply output'
@@ -1833,7 +1856,7 @@ try {
     $blockedProfileDirectory = Join-Path $blockedProfileRoot 'Default'
     New-Item -ItemType Directory -Path $blockedProfileDirectory -Force | Out-Null
     $blockedPreferences = Join-Path $blockedProfileDirectory 'Preferences'
-    $blockedOriginal = '{"brave":{"today":null,"new_tab_page":"x","rewards":null}}'
+    $blockedOriginal = '{"brave":{"today":null,"new_tab_page":"x","rewards":null,"brave_ads":7}}'
     [System.IO.File]::WriteAllText($blockedPreferences, $blockedOriginal, $utf8NoBom)
     $blockedOutput = (& $scriptPath -Platform Linux -PolicyPath (Join-Path $tempRoot 'blocked-policy.json') -OnlyFeature News,NewTabBackgrounds,Rewards -IncludeProfilePreferences -ProfileRoot $blockedProfileRoot -BackupDirectory (Join-Path $tempRoot 'BlockedBackups') -Apply *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $blockedOutput -Expected 'because a parent value is not a JSON object' -Context 'blocked profile patch warning'
@@ -1996,6 +2019,7 @@ try {
     & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -NoBackup -ReportPath $noBackupReportPath -NoOpenReport *>&1 | Out-Null
     $noBackupReport = [System.IO.File]::ReadAllText($noBackupReportPath)
     Assert-TextContains -Text $noBackupReport -Expected 'Backup: None (-NoBackup)' -Context '-NoBackup preview report'
+    Assert-TextContains -Text $noBackupReport -Expected 'Scope: LocalMachine' -Context 'Linux preview report'
     Assert-TextContains -Text $noBackupReport -Expected 'writes no backup' -Context '-NoBackup preview report'
     Assert-TextDoesNotContain -Text $noBackupReport -Unexpected 'Written on -Apply' -Context '-NoBackup preview report'
     Assert-TextDoesNotContain -Text $noBackupReport -Unexpected 'the report will include the undo command' -Context '-NoBackup preview report'
@@ -2007,7 +2031,10 @@ try {
 
         # An absolute XDG_CONFIG_HOME moves the Brave profile folder; a relative one is ignored.
         $savedConfigHome = $env:XDG_CONFIG_HOME
+        $savedSudoUid = $env:SUDO_UID
         try {
+            # These cases expect HOME, also when the checks themselves run under sudo.
+            $env:SUDO_UID = $null
             $env:XDG_CONFIG_HOME = '/custom/config'
             $xdgRoot = Get-DefaultProfileRoot -PlatformName Linux -Channel Beta
             if ($xdgRoot -cne (Join-Path '/custom/config' 'BraveSoftware/Brave-Browser-Beta')) {
@@ -2021,6 +2048,70 @@ try {
         }
         finally {
             $env:XDG_CONFIG_HOME = $savedConfigHome
+            $env:SUDO_UID = $savedSudoUid
+        }
+
+        # Under sudo, HOME is root's folder, but the profile to clean belongs to the user who ran sudo.
+        function Test-SudoProfileRoot {
+            param([string]$SudoUid, [bool]$IsRoot, [string]$Entry, [string]$ExpectedHome)
+            function Test-IsAdministrator { return $IsRoot }
+            function Get-PasswdEntry { param([string]$UserId) return $Entry }
+            $savedSudoUid = $env:SUDO_UID
+            $savedConfigHome = $env:XDG_CONFIG_HOME
+            try {
+                $env:SUDO_UID = $SudoUid
+                $env:XDG_CONFIG_HOME = $null
+                $sudoHome = Get-SudoUserHome
+                $sudoRoot = Get-DefaultProfileRoot -PlatformName Linux
+                $sudoNote = Get-SudoProfileRootNote -PlatformName Linux -ProfileRoot $sudoRoot
+                $env:XDG_CONFIG_HOME = '/custom/config'
+                $xdgRoot = Get-DefaultProfileRoot -PlatformName Linux
+                $xdgNote = Get-SudoProfileRootNote -PlatformName Linux -ProfileRoot $xdgRoot
+            }
+            finally {
+                $env:SUDO_UID = $savedSudoUid
+                $env:XDG_CONFIG_HOME = $savedConfigHome
+            }
+            if ($sudoHome -cne $ExpectedHome) {
+                throw "SUDO_UID '$SudoUid' (root: $IsRoot, passwd: '$Entry') resolved to home '$sudoHome' instead of '$ExpectedHome'."
+            }
+            if ([bool]$ExpectedHome -ne $sudoNote.Contains('who ran sudo') -or $xdgNote -ne '') {
+                throw "SUDO_UID '$SudoUid' (root: $IsRoot) got the wrong profile root note: '$sudoNote' / '$xdgNote'"
+            }
+            $expectedBase = if ($ExpectedHome) { $ExpectedHome } else { $HOME }
+            if (-not [string]::IsNullOrWhiteSpace($expectedBase) -and $sudoRoot -cne (Join-Path $expectedBase '.config/BraveSoftware/Brave-Browser')) {
+                throw "SUDO_UID '$SudoUid' (root: $IsRoot) got the Linux profile root '$sudoRoot'."
+            }
+            if ($xdgRoot -cne (Join-Path '/custom/config' 'BraveSoftware/Brave-Browser')) {
+                throw "An absolute XDG_CONFIG_HOME did not win over the sudo user's home: $xdgRoot"
+            }
+        }
+        $aliceEntry = 'alice:x:1000:1000:Alice:/home/alice:/bin/bash'
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $true -Entry $aliceEntry -ExpectedHome '/home/alice'
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $true -Entry 'CORP\alice:*:1000:1000::/home/alice:/bin/bash' -ExpectedHome '/home/alice'
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $false -Entry $aliceEntry -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '' -IsRoot $true -Entry $aliceEntry -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '0' -IsRoot $true -Entry 'root:x:0:0:root:/root:/bin/bash' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $true -Entry '' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $true -Entry 'bob:x:1001:1001::/home/bob:/bin/bash' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '1000' -IsRoot $true -Entry 'alice:x:1000:1000::relative/home:/bin/bash' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUid '1000;id' -IsRoot $true -Entry $aliceEntry -ExpectedHome ''
+
+        # Where sudo needs no password (CI runners), check the real thing with a read-only run.
+        $sudoWorks = $false
+        if ((Get-Variable -Name IsLinux -Scope Global -ErrorAction SilentlyContinue) -and $IsLinux -and [Environment]::UserName -ne 'root' -and (Get-Command -Name sudo -CommandType Application -ErrorAction SilentlyContinue)) {
+            & sudo -n true 2>$null
+            $sudoWorks = $LASTEXITCODE -eq 0
+            $global:LASTEXITCODE = 0
+        }
+        if ($sudoWorks) {
+            $sudoEnvironment = @('XDG_CONFIG_HOME=')
+            if ($env:DOTNET_SYSTEM_GLOBALIZATION_INVARIANT) {
+                $sudoEnvironment += "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=$($env:DOTNET_SYSTEM_GLOBALIZATION_INVARIANT)"
+            }
+            $sudoDoctorOutput = (& sudo -n env @sudoEnvironment (Get-Process -Id $PID).Path -NoProfile -File $scriptPath -Doctor -BackupDirectory $doctorBackupDirectory 2>&1 | Out-String -Width 4096)
+            $global:LASTEXITCODE = 0
+            Assert-TextContains -Text $sudoDoctorOutput -Expected (Join-Path (Get-PasswdEntry -UserId ([string](& /usr/bin/id -u))).Split(':')[5] '.config/BraveSoftware/Brave-Browser') -Context 'sudo -Doctor profile root'
         }
 
         # xdg-open must receive a report path with spaces as one argument.

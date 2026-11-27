@@ -295,7 +295,9 @@ function Show-DoctorReport {
             Label = [string]$feature.label
         }
     }
-    $featureRows | Format-Table -AutoSize -Wrap
+    # One shared policy file has no current-user side: a CurrentUser column would repeat LocalMachine.
+    $featureColumns = if ($reports.Count -eq 1) { @('Feature', 'LocalMachine', 'Label') } else { @('Feature', 'CurrentUser', 'LocalMachine', 'Label') }
+    $featureRows | Format-Table -Property $featureColumns -AutoSize -Wrap
 
     Write-DnsOverHttpsDoctorStatus -CurrentUserTarget $currentUserTarget -LocalMachineTarget $localMachineTarget
 

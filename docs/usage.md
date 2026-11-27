@@ -153,7 +153,11 @@ Some cosmetic cleanup lives in each Brave profile instead. Close Brave first, th
 .\Invoke-BraveDebloat.ps1 -Preset Extreme -IncludeProfilePreferences -Apply
 ```
 
+Brave has no policy for sponsored new tab images, so `NewTabBackgrounds` is a profile patch. Brave 1.96 and newer keep the choice for sponsored images and sponsored sites in one preference, `brave.brave_ads.sponsored.enabled`, and delete the older `brave.new_tab_page.show_branded_background_image` on launch. The cleanup sets the new preference to `false`. It changes the two older preferences (`show_branded_background_image` and `show_sponsored_sites`) only in profiles that still store them, so an updated Brave does not copy an old "on" value over the new preference on its first launch. Brave older than 1.96 does not read the new preference: a profile there that never stored the old one keeps sponsored images until Brave updates. It is a preference, not a policy, so you can turn it back on in Brave's new tab settings.
+
 If Brave is running with the selected profile folder, profile preference cleanup is skipped. This avoids writing files that Brave may overwrite. A folder counts as in use when it is a default Brave profile folder for any channel, or when it holds Brave's lock file (`SingletonLock` on macOS and Linux, `lockfile` on Windows). Restores that include profile files stop for the same reason until Brave is closed, also when `-ProfileRoot` names a folder above the one Brave is using. A preview tells you up front when Brave is running, and when a selected feature has profile patches that `-IncludeProfilePreferences` would add.
+
+On Linux, applying needs `sudo`, and `sudo` sets `HOME` to root's folder on most systems. A `sudo` run without `-ProfileRoot` therefore uses the Brave profile of the user who ran `sudo` (found through `SUDO_UID`), and prints the folder it picked. Apply, undo, and `-Doctor` resolve the same folder, so `sudo pwsh ./Invoke-BraveDebloat.ps1 -UndoFromBackup Latest -Apply` restores the profile files of a `sudo` apply run. `-ProfileRoot` and an absolute `XDG_CONFIG_HOME` still take priority. From a root shell that was not started through `sudo`, pass `-ProfileRoot`.
 
 Preferences files are read and written as UTF-8 without a byte order mark on every PowerShell version, so profile names and site entries with non-ASCII characters are preserved. Date strings elsewhere in the file are kept exactly as written. PowerShell 7.0 to 7.4 cannot read them without converting them, so those versions skip a Preferences file that contains dates and say so; use PowerShell 7.5 or newer, or Windows PowerShell 5.1, to clean it.
 
@@ -167,7 +171,7 @@ It checks policy locations, detected feature status, DNS-over-HTTPS mode and res
 
 On macOS, Doctor reads managed, obsolete, and explicitly blocked policy names individually. It does not enumerate other names, including policies covered only by a safety pattern. The report identifies this limit and marks policy read failures as an incomplete safety check. Open `brave://policy` to review the full list.
 
-This helps after testing other debloat tools. Machine-wide policies can make Brave settings appear managed for every Windows user, even when current-user policies look empty.
+This helps after testing other debloat tools. Machine-wide policies can make Brave settings appear managed for every Windows user, even when current-user policies look empty. On Linux, where one policy file serves every user, the report lists `LocalMachine` only.
 
 ## Restore
 
@@ -193,15 +197,20 @@ If a profile copy referenced by a backup is missing, restore stops before changi
 
 ## Machine-wide mode
 
-Current-user policy is the default and does not require administrator/root rights.
+On Windows and macOS, current-user policy is the default and does not require administrator rights.
 
-Previewing machine-wide policy works from a normal session and prints a note when the matching `-Apply` run will need elevation. To apply machine-wide policy, run PowerShell as administrator/root:
+Previewing machine-wide policy works from a normal session and prints a note when the matching `-Apply` run will need elevation. To apply machine-wide policy on Windows, run PowerShell as administrator:
 
 ```powershell
 .\Invoke-BraveDebloat.ps1 -Preset Extreme -Scope LocalMachine -Apply
 ```
 
-On Linux the default target `/etc/brave/policies/managed/BraveDebloater.json` also needs root, so run the apply command with `sudo pwsh`.
+Linux has no current-user policy location. Brave reads `/etc/brave/policies/managed/` for every user on the computer and treats those policies as mandatory. Every Linux run is therefore machine-wide: `-Scope` changes nothing there, and the output, reports, and backups show `Scope: LocalMachine`. Previews and `-Doctor` work from a normal session. Apply and undo write to `/etc/brave/policies/managed/BraveDebloater.json`, which needs root:
+
+```powershell
+sudo pwsh ./Invoke-BraveDebloat.ps1 -Preset Extreme -Apply
+sudo pwsh ./Invoke-BraveDebloat.ps1 -UndoFromBackup Latest -Apply
+```
 
 ## Platform support
 
@@ -226,7 +235,7 @@ macOS takes machine-wide (mandatory) policies from a configuration profile. A ma
 
 Open `brave.mobileconfig`, then install it in System Settings > General > Device Management. Chromium reads policies from a configuration profile as Mandatory, the level `AutofillSettings` needs. Open `brave://policy` after installing to confirm. Every export carries the same profile identifier, so installing one replaces the BraveDebloater profile you installed before: export every policy you want in one command, not one feature at a time. To undo, remove the BraveDebloater Brave policies profile there. `-Doctor -Scope LocalMachine` reads the managed plist that the profile creates. A restore refuses backups that target it, in a preview too, and points to the profile instead of asking for `sudo`. With `-PolicyPath`, machine-wide runs write that plist file instead, for testing or for your own deployment tool.
 
-Linux writes JSON policy values to `/etc/brave/policies/managed/BraveDebloater.json`. Other values in that file, including date strings, are kept as written. On PowerShell 7.0 to 7.4, which cannot keep date strings as text, apply and restore stop before changing a policy file that contains them.
+Linux writes JSON policy values to `/etc/brave/policies/managed/BraveDebloater.json`, a machine-wide, mandatory location (see [Machine-wide mode](#machine-wide-mode)). Other values in that file, including date strings, are kept as written. On PowerShell 7.0 to 7.4, which cannot keep date strings as text, apply and restore stop before changing a policy file that contains them.
 
 Android and iOS/iPadOS do not support local writes from this script. Use `-ExportPolicyPath` to create an MDM payload. Brave documents limited iOS/iPadOS support for Playlist, VPN, News, Talk, Rewards, and AI Chat policies.
 
