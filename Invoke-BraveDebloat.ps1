@@ -128,8 +128,13 @@ try {
             throw '-UserSid cannot be combined with -List, -ListFeatures, or backup listing/retention options.'
         }
     }
+    $sudoProfileNote = ''
     if ([string]::IsNullOrWhiteSpace($ProfileRoot)) {
         $ProfileRoot = Get-DefaultProfileRoot -PlatformName $platformName -Channel $Channel
+        $sudoUserHome = if ($platformName -eq 'Linux') { Get-SudoUserHome } else { '' }
+        if (-not [string]::IsNullOrWhiteSpace($sudoUserHome) -and (Test-PathIsUnderDirectory -Path $ProfileRoot -Directory $sudoUserHome)) {
+            $sudoProfileNote = "Profile root: $ProfileRoot, the Brave profile of '$($env:SUDO_USER)', who ran sudo. Pass -ProfileRoot to pick another folder."
+        }
     }
     $applyChanges = $Apply -and -not $WhatIfPreference
     $isWhatIf = $Apply -and $WhatIfPreference
@@ -349,6 +354,9 @@ try {
     }
     if ($customFeatureRequested) {
         Write-Step "Custom features: $($selectedFeatureIds -join ', ')"
+    }
+    if ($IncludeProfilePreferences -and $sudoProfileNote) {
+        Write-Step $sudoProfileNote
     }
     if (-not $IncludeProfilePreferences -and $policyTarget.Kind -ne 'MobileMDM') {
         $profilePatchFeatures = @(Get-ProfilePatchFeatureIds -Manifest $manifest -SelectedFeatureIds $selectedFeatureIds)

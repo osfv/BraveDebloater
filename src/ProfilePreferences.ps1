@@ -114,7 +114,8 @@ function Invoke-ProfilePreferenceCleanup {
 
     $files = @(Get-BraveProfilePreferenceFiles -Root $Root)
     if ($files.Count -eq 0) {
-        Write-Warning "No Brave profile Preferences files were found under $Root. Profile preference cleanup was skipped. Check -ProfileRoot or -Channel if Brave is installed."
+        $rootHint = if ([System.IO.Path]::DirectorySeparatorChar -eq [char]'/' -and (Test-IsAdministrator)) { ' This run is root: pass -ProfileRoot with the Brave folder of the user whose profile you want cleaned.' } else { '' }
+        Write-Warning "No Brave profile Preferences files were found under $Root. Profile preference cleanup was skipped. Check -ProfileRoot or -Channel if Brave is installed.$rootHint"
         & $addSkippedRow 'Profile preferences' $Root 'No Preferences files found.'
         return
     }

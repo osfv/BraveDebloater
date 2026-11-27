@@ -26,6 +26,36 @@ function Resolve-PlatformName {
     return 'Windows'
 }
 
+function Get-PasswdEntry {
+    param([Parameter(Mandatory = $true)][string]$UserName)
+
+    # getent also answers for directory accounts (LDAP, SSSD) that /etc/passwd does not list.
+    $entry = ''
+    if (Get-Command -Name getent -CommandType Application -ErrorAction SilentlyContinue) {
+        $entry = [string](@(& getent passwd $UserName 2>$null) | Select-Object -First 1)
+        $global:LASTEXITCODE = 0
+    }
+    if ([string]::IsNullOrWhiteSpace($entry) -and [System.IO.File]::Exists('/etc/passwd')) {
+        $entry = [string](@([System.IO.File]::ReadAllLines('/etc/passwd')) | Where-Object { $_.StartsWith("$($UserName):") } | Select-Object -First 1)
+    }
+    return $entry
+}
+
+function Get-SudoUserHome {
+    # sudo runs the script as root, and on most Linux systems it also sets HOME to root's folder.
+    # The Brave profile to clean belongs to the user who ran sudo. Returns that user's home folder,
+    # or '' when this is not a sudo session.
+    $userName = [string]$env:SUDO_USER
+    if ($userName -eq 'root' -or $userName -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.@-]*\$?$' -or -not (Test-IsAdministrator)) {
+        return ''
+    }
+    $fields = @((Get-PasswdEntry -UserName $userName).Split(':'))
+    if ($fields.Count -ge 6 -and $fields[0] -ceq $userName -and $fields[5].StartsWith('/')) {
+        return $fields[5]
+    }
+    return ''
+}
+
 function Get-DefaultProfileRoot {
     param(
         [string]$PlatformName,
@@ -57,8 +87,10 @@ function Get-DefaultProfileRoot {
             if ($configHome.StartsWith('/')) {
                 return (Join-Path $configHome "BraveSoftware/$browserDirectory")
             }
-            if ([string]::IsNullOrWhiteSpace($HOME)) { return '' }
-            return (Join-Path $HOME ".config/BraveSoftware/$browserDirectory")
+            $userHome = Get-SudoUserHome
+            if ([string]::IsNullOrWhiteSpace($userHome)) { $userHome = $HOME }
+            if ([string]::IsNullOrWhiteSpace($userHome)) { return '' }
+            return (Join-Path $userHome ".config/BraveSoftware/$browserDirectory")
         }
         default { return '' }
     }

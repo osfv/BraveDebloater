@@ -182,7 +182,7 @@ function Assert-BackupProfileFile {
 
     # Profile restores should only write Brave Preferences files under the selected profile root.
     if (-not (Test-PathIsUnderDirectory -Path $target -Directory $ProfileRoot)) {
-        throw "Backup profile target is outside the selected profile root: $target"
+        throw "Backup profile target is outside the selected profile root: $target. The selected root is '$ProfileRoot'. Pass -ProfileRoot with the Brave folder this backup was made from, then rerun the restore command. Nothing was restored."
     }
     if (-not [string]::Equals((Split-Path -Leaf $target), 'Preferences', (Get-FileSystemPathComparison))) {
         throw "Backup profile target is not a Brave Preferences file: $target"

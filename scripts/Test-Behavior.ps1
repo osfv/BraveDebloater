@@ -2016,6 +2016,63 @@ try {
             $env:XDG_CONFIG_HOME = $savedConfigHome
         }
 
+        # Under sudo, HOME is root's folder, but the profile to clean belongs to the user who ran sudo.
+        function Test-SudoProfileRoot {
+            param([string]$SudoUser, [bool]$IsRoot, [string]$Entry, [string]$ExpectedHome)
+            function Test-IsAdministrator { return $IsRoot }
+            function Get-PasswdEntry { param([string]$UserName) return $Entry }
+            $savedSudoUser = $env:SUDO_USER
+            $savedConfigHome = $env:XDG_CONFIG_HOME
+            try {
+                $env:SUDO_USER = $SudoUser
+                $env:XDG_CONFIG_HOME = $null
+                $sudoHome = Get-SudoUserHome
+                $sudoRoot = Get-DefaultProfileRoot -PlatformName Linux
+                $env:XDG_CONFIG_HOME = '/custom/config'
+                $xdgRoot = Get-DefaultProfileRoot -PlatformName Linux
+            }
+            finally {
+                $env:SUDO_USER = $savedSudoUser
+                $env:XDG_CONFIG_HOME = $savedConfigHome
+            }
+            if ($sudoHome -cne $ExpectedHome) {
+                throw "sudo user '$SudoUser' (root: $IsRoot, passwd: '$Entry') resolved to home '$sudoHome' instead of '$ExpectedHome'."
+            }
+            $expectedBase = if ($ExpectedHome) { $ExpectedHome } else { $HOME }
+            if (-not [string]::IsNullOrWhiteSpace($expectedBase) -and $sudoRoot -cne (Join-Path $expectedBase '.config/BraveSoftware/Brave-Browser')) {
+                throw "sudo user '$SudoUser' (root: $IsRoot) got the Linux profile root '$sudoRoot'."
+            }
+            if ($xdgRoot -cne (Join-Path '/custom/config' 'BraveSoftware/Brave-Browser')) {
+                throw "An absolute XDG_CONFIG_HOME did not win over the sudo user's home: $xdgRoot"
+            }
+        }
+        $aliceEntry = 'alice:x:1000:1000:Alice:/home/alice:/bin/bash'
+        Test-SudoProfileRoot -SudoUser 'alice' -IsRoot $true -Entry $aliceEntry -ExpectedHome '/home/alice'
+        Test-SudoProfileRoot -SudoUser 'alice' -IsRoot $false -Entry $aliceEntry -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUser '' -IsRoot $true -Entry $aliceEntry -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUser 'root' -IsRoot $true -Entry 'root:x:0:0:root:/root:/bin/bash' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUser 'alice' -IsRoot $true -Entry '' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUser 'alice' -IsRoot $true -Entry 'alice2:x:1001:1001::/home/alice2:/bin/bash' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUser 'alice' -IsRoot $true -Entry 'alice:x:1000:1000::relative/home:/bin/bash' -ExpectedHome ''
+        Test-SudoProfileRoot -SudoUser 'alice;id' -IsRoot $true -Entry $aliceEntry -ExpectedHome ''
+
+        # Where sudo needs no password (CI runners), check the real thing with a read-only run.
+        $sudoWorks = $false
+        if ((Get-Variable -Name IsLinux -Scope Global -ErrorAction SilentlyContinue) -and $IsLinux -and [Environment]::UserName -ne 'root' -and (Get-Command -Name sudo -CommandType Application -ErrorAction SilentlyContinue)) {
+            & sudo -n true 2>$null
+            $sudoWorks = $LASTEXITCODE -eq 0
+            $global:LASTEXITCODE = 0
+        }
+        if ($sudoWorks) {
+            $sudoEnvironment = @('XDG_CONFIG_HOME=')
+            if ($env:DOTNET_SYSTEM_GLOBALIZATION_INVARIANT) {
+                $sudoEnvironment += "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=$($env:DOTNET_SYSTEM_GLOBALIZATION_INVARIANT)"
+            }
+            $sudoDoctorOutput = (& sudo -n env @sudoEnvironment (Get-Process -Id $PID).Path -NoProfile -File $scriptPath -Doctor -BackupDirectory $doctorBackupDirectory 2>&1 | Out-String -Width 4096)
+            $global:LASTEXITCODE = 0
+            Assert-TextContains -Text $sudoDoctorOutput -Expected (Join-Path (Get-PasswdEntry -UserName ([Environment]::UserName)).Split(':')[5] '.config/BraveSoftware/Brave-Browser') -Context 'sudo -Doctor profile root'
+        }
+
         # xdg-open must receive a report path with spaces as one argument.
         if ([System.IO.Path]::DirectorySeparatorChar -eq '\' -or (Test-Path -LiteralPath '/usr/bin/open')) {
             return
