@@ -1020,7 +1020,7 @@ try {
     }
 
     $versionOutput = (& $scriptPath -Version *>&1 | Out-String -Width 4096)
-    Assert-TextContains -Text $versionOutput -Expected 'BraveDebloater 0.9.3' -Context '-Version output'
+    Assert-TextContains -Text $versionOutput -Expected 'BraveDebloater 0.9.4' -Context '-Version output'
     Assert-TextContains -Text $versionOutput -Expected "Policy template version: $((Get-Content -LiteralPath (Join-Path $root 'config/policies.json') -Raw | ConvertFrom-Json).policyTemplateVersion)" -Context '-Version output'
     Assert-TextContains -Text $versionOutput -Expected 'PowerShell: ' -Context '-Version output'
     Assert-TextDoesNotContain -Text $versionOutput -Unexpected '[dry-run]' -Context '-Version output'
