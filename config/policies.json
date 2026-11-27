@@ -651,6 +651,13 @@
     },
     {
       "feature": "NewTabBackgrounds",
+      "path": "brave.new_tab_page.show_sponsored_sites",
+      "value": false,
+      "createMissing": false,
+      "reason": "Turn off sponsored sites in Brave older than 1.96, for profiles that still have the preference."
+    },
+    {
+      "feature": "NewTabBackgrounds",
       "path": "brave.new_tab_page.show_background_image",
       "value": false,
       "createMissing": false,

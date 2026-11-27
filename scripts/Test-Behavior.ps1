@@ -966,15 +966,19 @@ try {
     # A profile-only feature selects no policies, so an updated Preferences file is the run's only change.
     $profileOnlyRoot = Join-Path $tempRoot 'ProfileOnlyRoot'
     New-Item -ItemType Directory -Path (Join-Path $profileOnlyRoot 'Default') -Force | Out-Null
-    [System.IO.File]::WriteAllText((Join-Path $profileOnlyRoot 'Default/Preferences'), '{"brave":{"new_tab_page":{"show_branded_background_image":true}}}', $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $profileOnlyRoot 'Default/Preferences'), '{"brave":{"new_tab_page":{"show_sponsored_sites":true}}}', $utf8NoBom)
     $profileOnlyRun = { & $scriptPath -Platform Linux -PolicyPath (Join-Path $tempRoot 'profile-only-policy.json') -OnlyFeature NewTabBackgrounds -IncludeProfilePreferences -ProfileRoot $profileOnlyRoot -BackupDirectory (Join-Path $tempRoot 'ProfileOnlyBackups') -Apply *>&1 | Out-String -Width 4096 }
     $profileOnlyOutput = & $profileOnlyRun
     Assert-TextContains -Text $profileOnlyOutput -Expected 'Updated profile preferences in' -Context 'profile-only apply output'
     Assert-TextContains -Text $profileOnlyOutput -Expected 'starring it on GitHub' -Context 'profile-only apply output'
-    # A profile from Brave older than 1.96 keeps its old preference in step with the new one.
+    # A profile from Brave older than 1.96 gets its stored old preference turned off too. Updated Brave
+    # would otherwise copy it over the new one on its first launch. The old one it lacks is not created.
     $profileOnlyJson = [System.IO.File]::ReadAllText((Join-Path $profileOnlyRoot 'Default/Preferences'), $utf8NoBom) | ConvertFrom-Json
-    if ($profileOnlyJson.brave.brave_ads.sponsored.enabled -ne $false -or $profileOnlyJson.brave.new_tab_page.show_branded_background_image -ne $false) {
-        throw 'NewTabBackgrounds cleanup did not turn off both sponsored new tab preferences.'
+    if ($profileOnlyJson.brave.brave_ads.sponsored.enabled -ne $false -or $profileOnlyJson.brave.new_tab_page.show_sponsored_sites -ne $false) {
+        throw 'NewTabBackgrounds cleanup left a sponsored new tab preference on.'
+    }
+    if ($null -ne $profileOnlyJson.brave.new_tab_page.PSObject.Properties['show_branded_background_image']) {
+        throw 'NewTabBackgrounds cleanup created the preference that Brave deletes on launch.'
     }
     $profileOnlyRerunOutput = & $profileOnlyRun
     Assert-TextContains -Text $profileOnlyRerunOutput -Expected 'No profile preference changes needed' -Context 'unchanged profile-only apply output'

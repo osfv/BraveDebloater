@@ -391,8 +391,16 @@ $sponsoredPatch = @($manifest.profilePreferencePatches | Where-Object { $_.path 
 if ($sponsoredPatch.Count -ne 1 -or $sponsoredPatch[0].value -ne $false -or -not $sponsoredPatch[0].createMissing -or $sponsoredPatch[0].feature -ne 'NewTabBackgrounds') {
     throw 'NewTabBackgrounds must set brave.brave_ads.sponsored.enabled to false and create it when missing.'
 }
-if (@($manifest.profilePreferencePatches | Where-Object { $_.path -ceq 'brave.new_tab_page.show_branded_background_image' -and $_.createMissing }).Count -gt 0) {
-    throw 'brave.new_tab_page.show_branded_background_image must not be created: Brave 1.96 and newer delete it on launch.'
+# On its first launch after an update, Brave sets the new preference to (old images AND old sites), with
+# a missing one counted as on. A stored old preference left on would switch sponsored content back on.
+foreach ($legacyPath in @('brave.new_tab_page.show_branded_background_image', 'brave.new_tab_page.show_sponsored_sites')) {
+    $legacyPatch = @($manifest.profilePreferencePatches | Where-Object { $_.path -ceq $legacyPath })
+    if ($legacyPatch.Count -ne 1 -or $legacyPatch[0].value -ne $false -or $legacyPatch[0].feature -ne 'NewTabBackgrounds') {
+        throw "NewTabBackgrounds must set $legacyPath to false in profiles that still have it."
+    }
+    if ($legacyPatch[0].createMissing) {
+        throw "$legacyPath must not be created: Brave 1.96 and newer delete it on launch."
+    }
 }
 
 $scriptFiles = New-Object System.Collections.Generic.List[string]
