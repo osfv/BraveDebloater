@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- macOS `-Scope LocalMachine -Apply` no longer reports policies as set while writing nothing. macOS ignores `defaults write` to `/Library/Managed Preferences/com.brave.Browser.plist` and exits 0, and it clears hand-written files there at the next reboot. The run now stops before any write or backup and gives the command for a `.mobileconfig` configuration profile, which macOS keeps. Previews say the same, `-Doctor` reads that plist with `plutil` instead of `defaults`, and a restore refuses backups that target it, in a preview too and without first asking for `sudo`. Reported by a macOS tester.
+
+- The macOS configuration profile instructions and the `.mobileconfig` export output now say that installing an exported profile replaces the BraveDebloater profile installed before. Every export carries the same profile identifier, so a single-feature export would drop the policies of an earlier full export. Export every policy you want in one command.
+
+- Every macOS policy write and removal is read back. A run stops with an error when macOS reports success without storing the value.
+
+- macOS current-user runs skip `AutofillSettings`. Brave accepts it only as a mandatory policy and showed "Policy level is not supported" for the Recommended value that `defaults write` creates. The run says how to include it through a configuration profile. `-List` and `-ReportPath` show the skip, a run with nothing else to do says so and writes no backup, and an `AutofillSettings` value that an earlier version wrote for the current user is backed up and removed.
+
+- Profile cleanup and profile restores only wait for Brave to close when Brave is using the selected profile folder: a default Brave folder, or one holding Brave's lock file. Previously any open Brave blocked cleanup of any folder, which also failed `scripts/Test-Behavior.ps1` on machines with Brave open. The check resolves a relative `-ProfileRoot` the way the cleanup does, looks for the lock file name of the current platform, compares folder names by the platform's case rules, and on restore also checks the folder of each restored `Preferences` file, so a `-ProfileRoot` above Brave's folder cannot skip it.
+
+- Recorded Brave policy template `159.1.102.46`. No policies were added, removed, deprecated, or reactivated.
+
 - Runs that reach the script body now end with a link to report problems: https://github.com/osfv/BraveDebloater/issues/new/choose. When a run stops with an error, including a `src/` file that fails to load, the line asks for the command and the full error. The error message and exit code stay the same. Invalid parameter values such as `-Preset Foo` fail before the script starts and show no link.
 
 - Issue reports now use separate forms for bugs and for feature or policy requests. The bug form asks for the command, the output, the `-Version` output, the platform, and the install method.

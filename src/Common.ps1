@@ -420,3 +420,42 @@ function Get-BraveProcess {
 function Test-BraveRunning {
     return (@(Get-BraveProcess).Count -gt 0)
 }
+
+function Test-BraveUsingProfileRoot {
+    param([string]$Root)
+
+    if (-not (Test-BraveRunning)) {
+        return $false
+    }
+    if ([string]::IsNullOrWhiteSpace($Root)) {
+        return $true
+    }
+    try {
+        # .NET resolves a relative path against the process directory, which Set-Location does not
+        # change, so the lock would be looked up in another folder than the one cleanup writes to.
+        $fullRoot = Get-FullFileSystemPath -Path $Root
+        if (-not [System.IO.Directory]::Exists($fullRoot)) {
+            return $false
+        }
+        $platformName = Resolve-PlatformName -Name 'Auto'
+        $lockName = if ($platformName -eq 'Windows') { 'lockfile' } else { 'SingletonLock' }
+        # Linux volumes are case-sensitive. Windows and macOS volumes ignore case by default.
+        $comparison = if ($platformName -eq 'Linux') { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
+        foreach ($entry in [System.IO.Directory]::GetFileSystemEntries($fullRoot)) {
+            if ([string]::Equals([System.IO.Path]::GetFileName($entry), $lockName, $comparison)) {
+                return $true
+            }
+        }
+        $rootPath = (Resolve-FileSystemLinkPath -Path $fullRoot).TrimEnd('\', '/')
+        foreach ($channel in @('Stable', 'Beta', 'Nightly')) {
+            $defaultRoot = Get-DefaultProfileRoot -PlatformName $platformName -Channel $channel
+            if (-not [string]::IsNullOrWhiteSpace($defaultRoot) -and [string]::Equals($rootPath, (Resolve-FileSystemLinkPath -Path $defaultRoot).TrimEnd('\', '/'), $comparison)) {
+                return $true
+            }
+        }
+    }
+    catch {
+        return $true
+    }
+    return $false
+}

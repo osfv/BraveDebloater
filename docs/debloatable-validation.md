@@ -11,8 +11,8 @@ Official sources used for this pass:
 
 Downloaded template evidence:
 
-- Template version: `159.1.102.30`
-- Archive `VERSION` entry timestamp: November 23, 2026
+- Template version: `159.1.102.46`
+- Archive `VERSION` entry timestamp: November 27, 2026
 - Checked files: `VERSION`, `windows/admx/brave.admx`, and `windows/admx/en-US/brave.adml`
 
 Targeted Reddit, Brave Community, and GitHub searches did not produce a newer or more authoritative debloatable-policy source than Brave's Help Center and template zip.
@@ -24,6 +24,8 @@ The manifest version in `config/policies.json` changed from `155.1.99.2` to `156
 ```json
 [{"url_pattern":"*","blocked_types":["contact_info","payments"]}]
 ```
+
+`AutofillSettings` carries `"mandatoryOnly": true` in the manifest. Brave reports "Policy level is not supported" for it at the Recommended level, which is the only level macOS current-user policies get, so current-user macOS runs skip it and point to a configuration profile. Registry, Linux JSON, and profile-based macOS policies apply it as Mandatory.
 
 The ADML documents `*` as matching all URLs and `contact_info`/`payments` as blocking both filling and saving those data types. This preserves the address/card cleanup without also blocking identity documents, travel, or shopping data. The ADMX stores the rule as JSON text in a registry `REG_SZ`; Linux and Android exports use a native JSON array, and macOS uses a plist array of dictionaries. The manifest type `Json` selects these platform-specific representations.
 

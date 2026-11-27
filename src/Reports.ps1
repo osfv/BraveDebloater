@@ -231,8 +231,14 @@ function Show-DoctorReport {
     }
 
     $braveProcesses = @(Get-BraveProcess)
-    if ($braveProcesses.Count -gt 0) {
+    if ($braveProcesses.Count -gt 0 -and (Test-BraveUsingProfileRoot -Root $ProfileRoot)) {
         Write-Step "Brave process: running ($($braveProcesses.Count) process(es)). Profile preference cleanup would be skipped until Brave is closed."
+    }
+    elseif ($braveProcesses.Count -gt 0 -and -not (Test-Path -LiteralPath $ProfileRoot -PathType Container)) {
+        Write-Step "Brave process: running ($($braveProcesses.Count) process(es))."
+    }
+    elseif ($braveProcesses.Count -gt 0) {
+        Write-Step "Brave process: running ($($braveProcesses.Count) process(es)), but not with $ProfileRoot. Profile preference cleanup can run there."
     }
     else {
         Write-Step 'Brave process: not running.'
@@ -413,7 +419,7 @@ function ConvertTo-RunReportHtml {
         param($Row)
         $label = if ([string]::IsNullOrWhiteSpace($Row.Feature)) { $Row.Name } else { $Row.Feature }
         $label = $label.Substring(0, 1).ToUpperInvariant() + $label.Substring(1)
-        $value = if ($Row.Kind -eq 'ProfileSkipped') { & $e $Row.Reason } elseif ($Row.Kind -eq 'Removal') { "$(& $e $Row.Before) &rarr; removed" } else { "$(& $e $Row.Before) &rarr; $(& $e $Row.NewValue)" }
+        $value = if ($Row.Kind -in @('ProfileSkipped', 'PolicySkipped')) { & $e $Row.Reason } elseif ($Row.Kind -eq 'Removal') { "$(& $e $Row.Before) &rarr; removed" } else { "$(& $e $Row.Before) &rarr; $(& $e $Row.NewValue)" }
         "<li><div><b>$(& $e $label)</b><code>$(& $e $Row.Name)</code></div><span>$value</span></li>"
     }
 

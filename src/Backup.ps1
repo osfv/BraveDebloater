@@ -50,10 +50,6 @@ function Assert-BackupRegistryPath {
             throw "The registry hive for user SID '$targetUserSid' is not loaded. Sign in that user, then rerun the elevated restore command."
         }
     }
-
-    if ($DoApply -and (Test-AllowedPolicyPathMatches -RegistryPath $RegistryPath -AllowedPolicyPath '/Library/Managed Preferences/com.brave.Browser.plist') -and -not (Test-IsAdministrator)) {
-        throw "Restoring a macOS managed-preferences backup writes to '$RegistryPath' and needs root. Rerun the restore command with sudo."
-    }
 }
 
 function Test-AllowedPolicyPathMatches {
@@ -609,6 +605,10 @@ function Restore-RegistryBackup {
     if ($policyTarget.Kind -in @('JsonFile', 'MacOSPlist')) {
         $policyTarget.Path = Get-FullFileSystemPath -Path $policyTarget.Path
     }
+    # Refused for previews too, so a dry-run never promises a restore that -Apply would turn down.
+    if ($policyTarget.Kind -eq 'MacOSPlist' -and (Test-MacOSManagedPreferencesPath -Path $policyTarget.Path)) {
+        throw (Get-MacOSManagedPolicyMessage -Path $policyTarget.Path -Restore)
+    }
 
     $profileFiles = @()
     if ($null -ne $backup.PSObject.Properties['profileFiles']) {
@@ -626,7 +626,9 @@ function Restore-RegistryBackup {
 
         # Brave rewrites Preferences on exit, so restoring profile files while it runs would be lost
         # or could corrupt the profile. Stop before touching anything so the restore is all-or-nothing.
-        if ($profileFiles.Count -gt 0 -and (Test-BraveRunning)) {
+        # -ProfileRoot may be a folder above the one Brave uses, so each file's own folder is checked too.
+        $profileFolders = @($ProfileRoot) + @($profileFiles | ForEach-Object { Split-Path -Parent (Split-Path -Parent ([string]$_.originalPath)) })
+        if ($profileFiles.Count -gt 0 -and @($profileFolders | Select-Object -Unique | Where-Object { Test-BraveUsingProfileRoot -Root $_ }).Count -gt 0) {
             throw 'Brave is running, so this backup was not restored. It includes profile Preferences files. Close Brave, then rerun the restore command.'
         }
     }
