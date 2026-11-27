@@ -118,13 +118,17 @@ function Get-DnsOverHttpsStatusText {
 function Write-DnsOverHttpsDoctorStatus {
     param(
         [Parameter(Mandatory = $true)]$CurrentUserTarget,
-        [Parameter(Mandatory = $true)]$LocalMachineTarget
+        [Parameter(Mandatory = $true)]$LocalMachineTarget,
+        $UserProfileTarget
     )
 
     $items = @(
         [pscustomobject]@{ Scope = 'CurrentUser'; Target = $CurrentUserTarget },
         [pscustomobject]@{ Scope = 'LocalMachine'; Target = $LocalMachineTarget }
     )
+    if ($null -ne $UserProfileTarget) {
+        $items = @($items[0], [pscustomobject]@{ Scope = 'CurrentUser profile'; Target = $UserProfileTarget }, $items[1])
+    }
     # -PolicyPath selects one file on Linux and macOS LocalMachine. Both scopes resolve to
     # that file, so report the selected target once instead of printing the same line twice.
     if ($CurrentUserTarget.Kind -ne 'Registry' -and $CurrentUserTarget.Path -eq $LocalMachineTarget.Path) {
@@ -179,13 +183,29 @@ function Show-DoctorReport {
     }
     # BraveDebloater 0.9.4 and earlier exported macOS profiles without PayloadScope, which macOS
     # installs for one user. Brave applies those as mandatory too, so report them instead of
-    # calling the policies missing.
+    # calling the policies missing. macOS also copies System profile values into the user's
+    # folder, so only values the machine-wide plist does not set the same way count.
     $userProfileReport = $null
     if ($currentUserTarget.Kind -eq 'MacOSDefaults') {
         $userProfileTarget = [pscustomobject]@{ Platform = 'macOS'; Kind = 'MacOSPlist'; Path = (Get-MacOSUserProfilePolicyPath) }
         if (Test-Path -LiteralPath $userProfileTarget.Path) {
             $userProfileReport = Get-PolicyReport -Target $userProfileTarget -ScopeName 'CurrentUser profile' -PolicyNames $probedPolicyNames.ToArray()
-            $reports = @($currentUserReport, $userProfileReport, $localMachineReport)
+            if ($userProfileReport.CanRead -and $localMachineReport.CanRead) {
+                $machineValues = @{}
+                foreach ($entry in @($localMachineReport.Entries)) {
+                    $machineValues[[string]$entry.Name] = ConvertTo-Json -InputObject $entry.Value -Compress -Depth 10
+                }
+                $userOnlyEntries = @($userProfileReport.Entries | Where-Object {
+                        -not $machineValues.ContainsKey([string]$_.Name) -or $machineValues[[string]$_.Name] -cne (ConvertTo-Json -InputObject $_.Value -Compress -Depth 10)
+                    })
+                $userProfileReport.Entries = $userOnlyEntries
+            }
+            if (-not $userProfileReport.CanRead -or $userProfileReport.Entries.Count -gt 0) {
+                $reports = @($currentUserReport, $userProfileReport, $localMachineReport)
+            }
+            else {
+                $userProfileReport = $null
+            }
         }
     }
     $unreadableScopes = New-Object System.Collections.Generic.List[string]
@@ -320,7 +340,8 @@ function Show-DoctorReport {
     $featureColumns = if ($reports.Count -eq 1) { @('Feature', 'LocalMachine', 'Label') } else { @('Feature', 'CurrentUser', 'LocalMachine', 'Label') }
     $featureRows | Format-Table -Property $featureColumns -AutoSize -Wrap
 
-    Write-DnsOverHttpsDoctorStatus -CurrentUserTarget $currentUserTarget -LocalMachineTarget $localMachineTarget
+    $dnsUserProfileTarget = if ($null -ne $userProfileReport) { $userProfileTarget } else { $null }
+    Write-DnsOverHttpsDoctorStatus -CurrentUserTarget $currentUserTarget -LocalMachineTarget $localMachineTarget -UserProfileTarget $dnsUserProfileTarget
 
     $deprecatedPolicyNames = @(Get-DeprecatedPolicyNames -Manifest $Manifest)
     $obsoleteRows = New-Object System.Collections.Generic.List[object]
@@ -344,7 +365,13 @@ function Show-DoctorReport {
     }
 
     if ($obsoleteRows.Count -gt 0) {
-        Write-Step 'Obsolete leftover policies: detected. Rerun with -Apply to remove them.'
+        $profileObsoleteRows = @($obsoleteRows.ToArray() | Where-Object { $_.Scope -eq 'CurrentUser profile' })
+        if ($profileObsoleteRows.Count -lt $obsoleteRows.Count) {
+            Write-Step 'Obsolete leftover policies: detected. Rerun with -Apply to remove them.'
+        }
+        if ($profileObsoleteRows.Count -gt 0) {
+            Write-Step 'Obsolete leftover policies: detected in a configuration profile, which -Apply cannot change. Export the profile again, install it, and remove the old profile in System Settings > General > Device Management.'
+        }
         $obsoleteRows.ToArray() | Format-Table -AutoSize -Wrap
     }
 
