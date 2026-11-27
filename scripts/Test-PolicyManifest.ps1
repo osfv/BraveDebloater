@@ -385,6 +385,16 @@ foreach ($patch in @($manifest.profilePreferencePatches)) {
     }
 }
 
+# Brave 1.96 moved the sponsored new tab choice to brave.brave_ads.sponsored.enabled and deletes the
+# old preference on launch, so creating the old one would be undone by Brave and planned again each run.
+$sponsoredPatch = @($manifest.profilePreferencePatches | Where-Object { $_.path -ceq 'brave.brave_ads.sponsored.enabled' })
+if ($sponsoredPatch.Count -ne 1 -or $sponsoredPatch[0].value -ne $false -or -not $sponsoredPatch[0].createMissing -or $sponsoredPatch[0].feature -ne 'NewTabBackgrounds') {
+    throw 'NewTabBackgrounds must set brave.brave_ads.sponsored.enabled to false and create it when missing.'
+}
+if (@($manifest.profilePreferencePatches | Where-Object { $_.path -ceq 'brave.new_tab_page.show_branded_background_image' -and $_.createMissing }).Count -gt 0) {
+    throw 'brave.new_tab_page.show_branded_background_image must not be created: Brave 1.96 and newer delete it on launch.'
+}
+
 $scriptFiles = New-Object System.Collections.Generic.List[string]
 [void]$scriptFiles.Add($scriptPath)
 [void]$scriptFiles.Add((Join-Path $root 'install.ps1'))

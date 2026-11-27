@@ -368,7 +368,7 @@
         "Privacy",
         "Aggressive"
       ],
-      "reason": "Hide sponsored and background images stored in profile preferences."
+      "reason": "Hide sponsored images, sponsored sites, and background images stored in profile preferences."
     }
   ],
   "policies": {
@@ -637,10 +637,17 @@
   "profilePreferencePatches": [
     {
       "feature": "NewTabBackgrounds",
-      "path": "brave.new_tab_page.show_branded_background_image",
+      "path": "brave.brave_ads.sponsored.enabled",
       "value": false,
       "createMissing": true,
-      "reason": "Disable sponsored new tab background images where Brave stores the preference."
+      "reason": "Turn off sponsored new tab images and sponsored sites. Brave 1.96 and newer keep both in this preference."
+    },
+    {
+      "feature": "NewTabBackgrounds",
+      "path": "brave.new_tab_page.show_branded_background_image",
+      "value": false,
+      "createMissing": false,
+      "reason": "Turn off sponsored new tab images in Brave older than 1.96, for profiles that still have the preference."
     },
     {
       "feature": "NewTabBackgrounds",

@@ -16,6 +16,8 @@
 
 - Linux runs no longer call their target `CurrentUser`. Brave on Linux reads `/etc/brave/policies/managed/` for every user and treats those policies as mandatory, and `-Scope` never changed that. The run output, reports, and new backups now show `Scope: LocalMachine` and say that the file applies to every user, `-Doctor` drops the duplicate `CurrentUser` column for the single policy file, and the README and usage guide describe Linux as machine-wide.
 
+- `NewTabBackgrounds` now turns off sponsored new tab images through `brave.brave_ads.sponsored.enabled`, the preference Brave 1.96 and newer read. Those versions delete the old `brave.new_tab_page.show_branded_background_image` on launch, so every run planned to create it again, as a tester saw with Brave 1.100.59. The new preference also covers sponsored sites, because Brave keeps both choices in it. The old preference is now only changed in profiles that still have it. Brave's template has no policy for this.
+
 - Recorded Brave policy template `159.1.102.46`. No policies were added, removed, deprecated, or reactivated.
 
 - Runs that reach the script body now end with a link to report problems: https://github.com/osfv/BraveDebloater/issues/new/choose. When a run stops with an error, including a `src/` file that fails to load, the line asks for the command and the full error. The error message and exit code stay the same. Invalid parameter values such as `-Preset Foo` fail before the script starts and show no link.

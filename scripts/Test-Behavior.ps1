@@ -40,6 +40,7 @@ try {
     $listOutput = (& $scriptPath -Preset Core -List -IncludeProfilePreferences -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $listOutput -Expected 'Profile preference patches' -Context '-List output'
     Assert-TextContains -Text $listOutput -Expected 'brave.new_tab_page.show_branded_background_image' -Context '-List output'
+    Assert-TextContains -Text $listOutput -Expected 'brave.brave_ads.sponsored.enabled' -Context '-List output'
     Assert-TextDoesNotContain -Text $listOutput -Unexpected '[dry-run]' -Context '-List output'
 
     $featureOutput = (& $scriptPath -Preset Extreme -ListFeatures *>&1 | Out-String -Width 4096)
@@ -544,7 +545,9 @@ try {
     if ($skipCount -ne 2) {
         throw "Expected 2 skipped profile Preferences files, found $skipCount."
     }
-    Assert-TextContains -Text $invalidJsonOutput -Expected 'Would create brave.new_tab_page.show_branded_background_image' -Context 'valid Preferences dry-run output'
+    # A fresh profile gets the preference current Brave reads, not the one Brave deletes on launch.
+    Assert-TextContains -Text $invalidJsonOutput -Expected 'Would create brave.brave_ads.sponsored.enabled' -Context 'valid Preferences dry-run output'
+    Assert-TextDoesNotContain -Text $invalidJsonOutput -Unexpected 'brave.new_tab_page.show_branded_background_image' -Context 'valid Preferences dry-run output'
     Assert-TextContains -Text $invalidJsonOutput -Expected 'Dry-run complete.' -Context 'invalid Preferences dry-run output'
 
     $invalidJsonContentBefore = Get-Content -LiteralPath $invalidPreferences -Raw
@@ -965,6 +968,11 @@ try {
     $profileOnlyOutput = & $profileOnlyRun
     Assert-TextContains -Text $profileOnlyOutput -Expected 'Updated profile preferences in' -Context 'profile-only apply output'
     Assert-TextContains -Text $profileOnlyOutput -Expected 'starring it on GitHub' -Context 'profile-only apply output'
+    # A profile from Brave older than 1.96 keeps its old preference in step with the new one.
+    $profileOnlyJson = [System.IO.File]::ReadAllText((Join-Path $profileOnlyRoot 'Default/Preferences'), $utf8NoBom) | ConvertFrom-Json
+    if ($profileOnlyJson.brave.brave_ads.sponsored.enabled -ne $false -or $profileOnlyJson.brave.new_tab_page.show_branded_background_image -ne $false) {
+        throw 'NewTabBackgrounds cleanup did not turn off both sponsored new tab preferences.'
+    }
     $profileOnlyRerunOutput = & $profileOnlyRun
     Assert-TextContains -Text $profileOnlyRerunOutput -Expected 'No profile preference changes needed' -Context 'unchanged profile-only apply output'
     Assert-TextDoesNotContain -Text $profileOnlyRerunOutput -Unexpected 'starring it on GitHub' -Context 'unchanged profile-only apply output'
@@ -1837,7 +1845,7 @@ try {
     $blockedProfileDirectory = Join-Path $blockedProfileRoot 'Default'
     New-Item -ItemType Directory -Path $blockedProfileDirectory -Force | Out-Null
     $blockedPreferences = Join-Path $blockedProfileDirectory 'Preferences'
-    $blockedOriginal = '{"brave":{"today":null,"new_tab_page":"x","rewards":null}}'
+    $blockedOriginal = '{"brave":{"today":null,"new_tab_page":"x","rewards":null,"brave_ads":7}}'
     [System.IO.File]::WriteAllText($blockedPreferences, $blockedOriginal, $utf8NoBom)
     $blockedOutput = (& $scriptPath -Platform Linux -PolicyPath (Join-Path $tempRoot 'blocked-policy.json') -OnlyFeature News,NewTabBackgrounds,Rewards -IncludeProfilePreferences -ProfileRoot $blockedProfileRoot -BackupDirectory (Join-Path $tempRoot 'BlockedBackups') -Apply *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $blockedOutput -Expected 'because a parent value is not a JSON object' -Context 'blocked profile patch warning'
