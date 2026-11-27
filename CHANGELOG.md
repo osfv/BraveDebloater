@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.4 - 2026-11-27
+
 - macOS `-Scope LocalMachine -Apply` no longer reports policies as set while writing nothing. macOS ignores `defaults write` to `/Library/Managed Preferences/com.brave.Browser.plist` and exits 0, and it clears hand-written files there at the next reboot. The run now stops before any write or backup and gives the command for a `.mobileconfig` configuration profile, which macOS keeps. Previews say the same, `-Doctor` reads that plist with `plutil` instead of `defaults`, and a restore refuses backups that target it, in a preview too and without first asking for `sudo`. Reported by a macOS tester.
 
 - The macOS configuration profile instructions and the `.mobileconfig` export output now say that installing an exported profile replaces the BraveDebloater profile installed before. Every export carries the same profile identifier, so a single-feature export would drop the policies of an earlier full export. Export every policy you want in one command.
