@@ -33,6 +33,17 @@ function Write-DryRun {
     Write-Host "[dry-run] $Message"
 }
 
+function Write-IssueHint {
+    param([switch]$Failed)
+    $url = 'https://github.com/osfv/BraveDebloater/issues/new/choose'
+    if ($Failed) {
+        Write-Step "This run stopped with an error. If the error message does not say how to fix it, report it at $url with the command you ran and the full error."
+    }
+    else {
+        Write-Step "Found a bug, or a Brave feature this misses? Report it at $url"
+    }
+}
+
 function Get-ManifestMap {
     param([Parameter(Mandatory = $true)]$Object)
 

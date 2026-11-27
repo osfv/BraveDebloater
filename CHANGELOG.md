@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Runs that reach the script body now end with a link to report problems: https://github.com/osfv/BraveDebloater/issues/new/choose. When a run stops with an error, including a `src/` file that fails to load, the line asks for the command and the full error. The error message and exit code stay the same. Invalid parameter values such as `-Preset Foo` fail before the script starts and show no link.
+
+- Issue reports now use separate forms for bugs and for feature or policy requests. The bug form asks for the command, the output, the `-Version` output, the platform, and the install method.
+
 - winget manifests now use schema `1.28.0`, and the release workflow pins wingetcreate `v1.28.1.0`. winget-pkgs closed the `0.9.1` submission because schema `1.10.0` is deprecated there.
 
 ## 0.9.3 - 2026-11-26

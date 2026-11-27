@@ -1,0 +1,42 @@
+name: Feature or policy request
+description: A Brave feature BraveDebloater should turn off, or a new option.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        BraveDebloater only uses documented Brave and Chromium enterprise policies.
+        It will not add policies that disable Brave updates, disable or allowlist Shields, weaken Safe Browsing, or remove extensions.
+  - type: textarea
+    id: request
+    attributes:
+      label: What should BraveDebloater turn off or manage?
+      description: The Brave feature or behavior, and why you want it gone.
+    validations:
+      required: true
+  - type: input
+    id: policy
+    attributes:
+      label: Policy name
+      description: If you know it. brave://policy lists the policies Brave supports.
+      placeholder: BraveRewardsDisabled
+  - type: input
+    id: source
+    attributes:
+      label: Policy documentation
+      description: A link to the Brave or Chromium policy page or template entry.
+  - type: dropdown
+    id: platforms
+    attributes:
+      label: Platforms
+      multiple: true
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Android or iOS (MDM export)
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Alternatives you tried, screenshots, or related issues.

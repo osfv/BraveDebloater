@@ -296,6 +296,37 @@ try {
         throw '-OnlyFeature did not reject blank-only input.'
     }
 
+    $issueHint = 'Found a bug, or a Brave feature this misses? Report it at https://github.com/osfv/BraveDebloater/issues/new/choose'
+    $issueErrorHint = 'This run stopped with an error. If the error message does not say how to fix it, report it at https://github.com/osfv/BraveDebloater/issues/new/choose'
+    Assert-TextContains -Text $onlyDryRunOutput -Expected $issueHint -Context 'dry-run issue hint'
+
+    $brokenInstallRoot = Join-Path $tempRoot 'BrokenInstall'
+    New-Item -ItemType Directory -Path (Join-Path $brokenInstallRoot 'src') -Force | Out-Null
+    Copy-Item -LiteralPath $scriptPath -Destination $brokenInstallRoot
+    Copy-Item -LiteralPath (Join-Path $root 'src/Common.ps1') -Destination (Join-Path $brokenInstallRoot 'src')
+    $hostPath = (Get-Process -Id $PID).Path
+    $issueHintCases = @(
+        @{ Context = 'run-body error'; Script = $scriptPath; Arguments = @('-Platform', 'Linux', '-UserSid', $targetUserSid, '-OnlyFeature', 'Rewards'); ExitCode = 1; Message = 'supported only for Windows registry policies'; Hint = $issueErrorHint; OtherHint = $issueHint }
+        @{ Context = 'missing src file'; Script = (Join-Path $brokenInstallRoot 'Invoke-BraveDebloat.ps1'); Arguments = @('-Version'); ExitCode = 1; Message = 'Manifest.ps1'; Hint = $issueErrorHint; OtherHint = $issueHint }
+        @{ Context = '-Version'; Script = $scriptPath; Arguments = @('-Version'); ExitCode = 0; Message = 'Policy template version:'; Hint = $issueHint; OtherHint = $issueErrorHint }
+    )
+    foreach ($case in $issueHintCases) {
+        $ErrorActionPreference = 'Continue'
+        try {
+            $caseOutput = (& $hostPath -NoProfile -ExecutionPolicy Bypass -File $case.Script @($case.Arguments) 2>&1 | Out-String -Width 4096)
+            $caseExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = 'Stop'
+        }
+        if ($caseExitCode -ne $case.ExitCode) {
+            throw "$($case.Context) exited with $caseExitCode instead of $($case.ExitCode). Output: $caseOutput"
+        }
+        Assert-TextContains -Text $caseOutput -Expected $case.Hint -Context "$($case.Context) output"
+        Assert-TextContains -Text $caseOutput -Expected $case.Message -Context "$($case.Context) output"
+        Assert-TextDoesNotContain -Text $caseOutput -Unexpected $case.OtherHint -Context "$($case.Context) output"
+    }
+
     $onlyConflictCommands = @(
         { & $scriptPath -OnlyFeature Rewards -ExcludeFeature Wallet -List | Out-Null },
         { & $scriptPath -OnlyFeature Rewards -IncludeFeature Wallet -List | Out-Null },
