@@ -882,8 +882,11 @@ try {
     Assert-TextContains -Text $macUserAutofillPreview -Expected 'Skipped AutofillSettings: Brave accepts it only as a mandatory policy' -Context 'macOS current-user Autofill preview'
     Assert-TextDoesNotContain -Text $macUserAutofillPreview -Unexpected 'Would set AutofillSettings' -Context 'macOS current-user Autofill preview'
     # With every selected policy skipped, the run must not promise that -Apply would change something.
-    Assert-TextContains -Text $macUserAutofillPreview -Expected 'Nothing to change: every selected policy was skipped' -Context 'macOS current-user Autofill preview'
-    Assert-TextDoesNotContain -Text $macUserAutofillPreview -Unexpected 'Rerun with -Apply' -Context 'macOS current-user Autofill preview'
+    # On a Mac this preview reads the real Brave domain, where leftovers to remove are a valid plan too.
+    if (-not $macUserAutofillPreview.Contains('Would remove ')) {
+        Assert-TextContains -Text $macUserAutofillPreview -Expected 'Nothing to change: every selected policy was skipped' -Context 'macOS current-user Autofill preview'
+        Assert-TextDoesNotContain -Text $macUserAutofillPreview -Unexpected 'Rerun with -Apply' -Context 'macOS current-user Autofill preview'
+    }
     # -List and the report show the plan that runs: the skipped policy is named, not listed as set.
     $macUserAutofillList = (& $scriptPath -Platform macOS -OnlyFeature Autofill,Rewards -List *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $macUserAutofillList -Expected 'Skipped AutofillSettings' -Context 'macOS current-user Autofill -List'

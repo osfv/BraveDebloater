@@ -439,13 +439,13 @@ function Test-BraveUsingProfileRoot {
         }
         $platformName = Resolve-PlatformName -Name 'Auto'
         $lockName = if ($platformName -eq 'Windows') { 'lockfile' } else { 'SingletonLock' }
+        # Linux volumes are case-sensitive. Windows and macOS volumes ignore case by default.
+        $comparison = if ($platformName -eq 'Linux') { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
         foreach ($entry in [System.IO.Directory]::GetFileSystemEntries($fullRoot)) {
-            if ([System.IO.Path]::GetFileName($entry) -eq $lockName) {
+            if ([string]::Equals([System.IO.Path]::GetFileName($entry), $lockName, $comparison)) {
                 return $true
             }
         }
-        # Linux volumes are case-sensitive. Windows and macOS volumes ignore case by default.
-        $comparison = if ($platformName -eq 'Linux') { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
         $rootPath = (Resolve-FileSystemLinkPath -Path $fullRoot).TrimEnd('\', '/')
         foreach ($channel in @('Stable', 'Beta', 'Nightly')) {
             $defaultRoot = Get-DefaultProfileRoot -PlatformName $platformName -Channel $channel
