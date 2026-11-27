@@ -36,7 +36,7 @@ Keep the source C# 5 compatible for that compiler.
 ## winget
 
 `scripts/New-PackageManifests.ps1 -Version X.Y.Z` reads the release `SHA256SUMS.txt` and writes
-`winget/manifests/o/osfv/BraveDebloater/X.Y.Z/osfv.BraveDebloater.*.yaml` (schema 1.10.0, portable zip,
+`winget/manifests/o/osfv/BraveDebloater/X.Y.Z/osfv.BraveDebloater.*.yaml` (schema 1.28.0, portable zip,
 `ArchiveBinariesDependOnPath: true` so the whole extracted folder lands on `PATH`). The release workflow
 writes the same files into its `package-manifests` artifact.
 

@@ -1686,7 +1686,7 @@ try {
             'ReleaseDate: 2026-01-02',
             'InstallerUrl: https://github.com/osfv/BraveDebloater/releases/download/v1.2.3/BraveDebloater-v1.2.3-windows.zip',
             ('InstallerSha256: {0}' -f ('B' * 64)),
-            'ManifestVersion: 1.10.0')) {
+            'ManifestVersion: 1.28.0')) {
         Assert-TextContains -Text $installerManifest -Expected $expectedLine -Context 'winget installer manifest'
     }
     $versionManifest = Get-Content -LiteralPath (Join-Path $wingetDirectory 'osfv.BraveDebloater.yaml') -Raw

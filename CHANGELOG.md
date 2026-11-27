@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- winget manifests now use schema `1.28.0`, and the release workflow pins wingetcreate `v1.28.1.0`. winget-pkgs closed the `0.9.1` submission because schema `1.10.0` is deprecated there.
+
 ## 0.9.3 - 2026-11-26
 
 - Recorded Brave policy template `159.1.102.30`. It adds `GeminiChromeFileUploadSettings`; no policy BraveDebloater manages was removed, deprecated, or retyped.
