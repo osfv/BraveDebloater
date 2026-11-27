@@ -245,6 +245,18 @@ try {
         return
     }
 
+    # macOS applies current-user policies as recommended, a level Brave rejects for some policies.
+    # Checked before -List so the listed plan is the one that runs. Exports keep these policies.
+    $exportRequested = -not [string]::IsNullOrWhiteSpace($ExportPolicyPath)
+    $skippedPolicyNames = New-Object System.Collections.Generic.List[string]
+    if (-not $exportRequested -and (Get-PolicyTarget -PlatformName $platformName -ScopeName $Scope -OverridePath $PolicyPath -UserSid $UserSid -ReadOnly).Kind -eq 'MacOSDefaults') {
+        foreach ($name in @($policyNames | Where-Object { Test-PolicyMandatoryOnly -Definition $policyDefinitions[$_] })) {
+            [void]$policyNames.Remove($name)
+            [void]$skippedPolicyNames.Add($name)
+            Write-Step "Skipped $($name): Brave accepts it only as a mandatory policy, and macOS applies current-user policies as recommended. To include it, add -ExportPolicyPath ./brave.mobileconfig to this command without -Apply, then open that file and install it in System Settings > General > Device Management. $(Get-ConfigurationProfileReplaceNote)"
+        }
+    }
+
     if ($List) {
         Show-PolicyList -PolicyNames $policyNames.ToArray() -PolicyDefinitions $policyDefinitions -RemoveNames $dnsRemovePolicyNames.ToArray()
         if ($IncludeProfilePreferences) {
@@ -263,7 +275,6 @@ try {
 
     # Previews and exports never write to the policy target, so they must not demand elevation.
     # Only a real apply run performs the administrator/root and loaded-hive checks.
-    $exportRequested = -not [string]::IsNullOrWhiteSpace($ExportPolicyPath)
     if ($exportRequested -and $Apply) {
         Write-Warning '-ExportPolicyPath only writes the export file. -Apply was ignored and the policy target was not changed.'
     }
@@ -274,12 +285,6 @@ try {
     }
     if (-not [string]::IsNullOrWhiteSpace($PolicyPath) -and $policyTarget.Kind -notin @('JsonFile', 'MacOSPlist')) {
         Write-Warning "-PolicyPath is ignored for $platformName $Scope policies, which are written to $($policyTarget.Path). It only selects a file for Linux or macOS LocalMachine targets."
-    }
-    if ($policyTarget.Kind -eq 'MacOSDefaults' -and -not $exportRequested) {
-        foreach ($name in @($policyNames | Where-Object { Test-PolicyMandatoryOnly -Definition $policyDefinitions[$_] })) {
-            [void]$policyNames.Remove($name)
-            Write-Step "Skipped $($name): Brave accepts it only as a mandatory policy, and macOS applies current-user policies as recommended. To include it, add -ExportPolicyPath ./brave.mobileconfig to this command without -Apply, then open that file and install it in System Settings > General > Device Management."
-        }
     }
 
     # An export is written without -Apply or a backup, and a report is written in a preview as well as
@@ -307,7 +312,7 @@ try {
         $exportFormat = Export-PolicyPayload -Target $policyTarget -Payload $payload -Path $ExportPolicyPath -RemoveNames $dnsRemovePolicyNames.ToArray()
         $exportHint = switch ($exportFormat) {
             'Reg' { 'Double-click it or run `reg import` on the target Windows machine, then restart Brave.' }
-            'MobileConfig' { 'Install that profile with your MDM or device manager.' }
+            'MobileConfig' { "Install that profile with your MDM or device manager. $(Get-ConfigurationProfileReplaceNote)" }
             default { 'Apply that file with your device or policy manager.' }
         }
         Write-Step "Exported $($policyNames.Count) policy value(s) for $platformName to $ExportPolicyPath. $exportHint"
@@ -371,11 +376,16 @@ try {
     }
 
     $obsoletePolicyNames = New-Object System.Collections.Generic.List[string]
+    $rejectedPolicyNames = New-Object System.Collections.Generic.List[string]
     $dnsPresentRemovals = New-Object System.Collections.Generic.List[string]
     if ($policyTarget.Kind -ne 'MobileMDM') {
         try {
             foreach ($name in @(Get-PresentPolicyNames -Target $policyTarget -PolicyNames @(Get-DeprecatedPolicyNames -Manifest $manifest))) {
                 [void]$obsoletePolicyNames.Add($name)
+            }
+            # A skipped policy that an earlier version wrote keeps showing an error in brave://policy.
+            foreach ($name in @(Get-PresentPolicyNames -Target $policyTarget -PolicyNames $skippedPolicyNames.ToArray())) {
+                [void]$rejectedPolicyNames.Add($name)
             }
             foreach ($name in @(Get-PresentPolicyNames -Target $policyTarget -PolicyNames $dnsRemovePolicyNames.ToArray())) {
                 [void]$dnsPresentRemovals.Add($name)
@@ -393,15 +403,15 @@ try {
     foreach ($name in $policyNames) {
         [void]$backupPolicyNames.Add($name)
     }
-    foreach ($name in $obsoletePolicyNames) {
-        Add-StringIfMissing -List $backupPolicyNames -Value $name
-    }
-    foreach ($name in $dnsPresentRemovals) {
+    foreach ($name in @($obsoletePolicyNames) + @($rejectedPolicyNames) + @($dnsPresentRemovals)) {
         Add-StringIfMissing -List $backupPolicyNames -Value $name
     }
 
+    # Skipping can leave a run with no policy to set, nothing to remove, and no profile cleanup.
+    $nothingToDo = $skippedPolicyNames.Count -gt 0 -and $backupPolicyNames.Count -eq 0 -and -not $IncludeProfilePreferences
+
     $backupPath = $null
-    if ($applyChanges -and -not $NoBackup) {
+    if ($applyChanges -and -not $NoBackup -and -not $nothingToDo) {
         if ($policyTarget.Kind -eq 'JsonFile' -and (Test-Path -LiteralPath $policyTarget.Path)) {
             if ($backupPolicyNames.Count -gt 0) {
                 Get-ManagedPolicyJsonForWrite -Path $policyTarget.Path | Out-Null
@@ -422,7 +432,7 @@ try {
 
     $reportRows = New-Object System.Collections.Generic.List[object]
     $removalCurrentValues = $null
-    $removalNames = @(@($obsoletePolicyNames) + @($dnsPresentRemovals))
+    $removalNames = @(@($obsoletePolicyNames) + @($rejectedPolicyNames) + @($dnsPresentRemovals))
     if ($reportRequested -and $removalNames.Count -gt 0 -and $policyTarget.Kind -ne 'MobileMDM') {
         $removalCurrentValues = Get-PolicyValueMap -Target $policyTarget -PolicyNames $removalNames
     }
@@ -432,6 +442,12 @@ try {
             if (-not $policyFeatureLabels.ContainsKey([string]$name)) {
                 $policyFeatureLabels[[string]$name] = [string]$feature.label
             }
+        }
+    }
+
+    if ($reportRequested) {
+        foreach ($policyName in $skippedPolicyNames) {
+            [void]$reportRows.Add([pscustomobject]@{ Kind = 'PolicySkipped'; Name = $policyName; Feature = [string]$policyFeatureLabels[$policyName]; Reason = 'Skipped: Brave accepts it only as a mandatory policy.'; Before = ''; NewValue = ''; Status = 'Skipped' })
         }
     }
 
@@ -466,44 +482,34 @@ try {
         }
     }
 
-    $removedObsoleteCount = 0
-    foreach ($policyName in $obsoletePolicyNames) {
-        $reportStatus = 'Would remove'
-        if (-not $applyChanges) {
-            Write-DryRun "Would remove $policyName because Brave marks it obsolete."
-        }
-        elseif ($PSCmdlet.ShouldProcess($policyTarget.Path, "Remove obsolete policy $policyName")) {
-            Remove-PolicyValue -Target $policyTarget -Name $policyName
-            $removedObsoleteCount++
-            Write-Step "Removed obsolete $policyName."
-            $reportStatus = 'Removed'
-        }
-        else {
-            $reportStatus = 'Skipped'
-        }
-        if ($reportRequested) {
-            [void]$reportRows.Add([pscustomobject]@{ Kind = 'Removal'; Name = $policyName; Feature = ''; Reason = 'Brave marks this policy obsolete.'; Before = (Get-RunReportCurrentText -CurrentValues $removalCurrentValues -Name $policyName); NewValue = ''; Status = $reportStatus })
+    $removalGroups = @(
+        @{ Names = $obsoletePolicyNames; Kind = 'obsolete policy'; Why = 'because Brave marks it obsolete'; Done = 'Removed obsolete {0}.'; Noun = 'obsolete leftover(s)'; Feature = ''; Reason = 'Brave marks this policy obsolete.'; Removed = 0 },
+        @{ Names = $rejectedPolicyNames; Kind = 'rejected policy'; Why = 'because Brave rejects it as a recommended policy'; Done = 'Removed {0}, which Brave rejected as a recommended policy.'; Noun = 'rejected value(s)'; Feature = ''; Reason = 'Brave accepts this policy only as mandatory.'; Removed = 0 },
+        @{ Names = $dnsPresentRemovals; Kind = 'DNS policy'; Why = 'so Brave settings control it again'; Done = 'Removed {0}.'; Noun = 'DNS policy value(s)'; Feature = 'DNS over HTTPS'; Reason = 'Removed so Brave settings control DNS again.'; Removed = 0 }
+    )
+    foreach ($group in $removalGroups) {
+        foreach ($policyName in $group.Names) {
+            $reportStatus = 'Would remove'
+            if (-not $applyChanges) {
+                Write-DryRun "Would remove $policyName $($group.Why)."
+            }
+            elseif ($PSCmdlet.ShouldProcess($policyTarget.Path, "Remove $($group.Kind) $policyName")) {
+                Remove-PolicyValue -Target $policyTarget -Name $policyName
+                $group.Removed++
+                Write-Step ($group.Done -f $policyName)
+                $reportStatus = 'Removed'
+            }
+            else {
+                $reportStatus = 'Skipped'
+            }
+            if ($reportRequested) {
+                [void]$reportRows.Add([pscustomobject]@{ Kind = 'Removal'; Name = $policyName; Feature = $group.Feature; Reason = $group.Reason; Before = (Get-RunReportCurrentText -CurrentValues $removalCurrentValues -Name $policyName); NewValue = ''; Status = $reportStatus })
+            }
         }
     }
-
-    $removedDnsCount = 0
-    foreach ($policyName in $dnsPresentRemovals) {
-        $reportStatus = 'Would remove'
-        if (-not $applyChanges) {
-            Write-DryRun "Would remove $policyName so Brave settings control it again."
-        }
-        elseif ($PSCmdlet.ShouldProcess($policyTarget.Path, "Remove DNS policy $policyName")) {
-            Remove-PolicyValue -Target $policyTarget -Name $policyName
-            $removedDnsCount++
-            Write-Step "Removed $policyName."
-            $reportStatus = 'Removed'
-        }
-        else {
-            $reportStatus = 'Skipped'
-        }
-        if ($reportRequested) {
-            [void]$reportRows.Add([pscustomobject]@{ Kind = 'Removal'; Name = $policyName; Feature = 'DNS over HTTPS'; Reason = 'Removed so Brave settings control DNS again.'; Before = (Get-RunReportCurrentText -CurrentValues $removalCurrentValues -Name $policyName); NewValue = ''; Status = $reportStatus })
-        }
+    $removedPolicyCount = 0
+    foreach ($group in $removalGroups) {
+        $removedPolicyCount += $group.Removed
     }
 
     $updatedProfileFiles = New-Object System.Collections.Generic.List[string]
@@ -515,16 +521,13 @@ try {
         Invoke-ProfilePreferenceCleanup -Root $ProfileRoot -Manifest $manifest -BackupPath $backupPath -SelectedFeatureIds $selectedFeatureIds -UseFeatureFilter:$customFeatureRequested -DoApply:$applyChanges -ReportRows $profileReportRows -UpdatedFiles $updatedProfileFiles
     }
 
-    $obsoletePlanSummary = if ($obsoletePolicyNames.Count -gt 0) { ", $($obsoletePolicyNames.Count) obsolete leftover(s) to remove" } else { '' }
-    $obsoleteDoneSummary = if ($removedObsoleteCount -gt 0) { " Removed $removedObsoleteCount obsolete leftover(s)." } else { '' }
-    if ($dnsPresentRemovals.Count -gt 0) {
-        $obsoletePlanSummary += ", $($dnsPresentRemovals.Count) DNS policy value(s) to remove"
-    }
-    if ($removedDnsCount -gt 0) {
-        $obsoleteDoneSummary += " Removed $removedDnsCount DNS policy value(s)."
-    }
+    $obsoletePlanSummary = -join @($removalGroups | Where-Object { $_.Names.Count -gt 0 } | ForEach-Object { ", $($_.Names.Count) $($_.Noun) to remove" })
+    $obsoleteDoneSummary = -join @($removalGroups | Where-Object { $_.Removed -gt 0 } | ForEach-Object { " Removed $($_.Removed) $($_.Noun)." })
     $alreadySetSummary = if ($alreadySetCount -gt 0) { " ($alreadySetCount already set)" } else { '' }
-    if (-not $applyChanges) {
+    if ($nothingToDo) {
+        Write-Step 'Nothing to change: every selected policy was skipped for this target. No policy, backup, or profile files were changed.'
+    }
+    elseif (-not $applyChanges) {
         if ($isWhatIf) {
             Write-Step "WhatIf complete. $($policyNames.Count) policy value(s) planned$alreadySetSummary$obsoletePlanSummary, no changes were made. Rerun with -Apply without -WhatIf when you are ready."
         }
@@ -560,6 +563,9 @@ try {
                         $undoText = $undoHint
                     }
                 }
+                elseif ($nothingToDo) {
+                    $undoText = 'Nothing to undo. Every selected policy was skipped, so this run changes nothing.'
+                }
                 elseif (-not $applyChanges -and $NoBackup) {
                     $undoText = 'Nothing to undo. With -NoBackup, the matching -Apply run writes no backup, so it will have no undo command.'
                 }
@@ -573,7 +579,7 @@ try {
                     'DNS over HTTPS' = if ($null -ne $dnsPlan) { $dnsPlan.Summary } else { 'Not managed' }
                     'Features' = if ($customFeatureRequested) { $selectedFeatureIds -join ', ' } else { 'Preset default' }
                     'Profile preferences' = if (-not $IncludeProfilePreferences) { 'Not included' } elseif (@($reportRows | Where-Object { $_.Kind -eq 'ProfileSkipped' }).Count -gt 0) { "Included ($ProfileRoot), some cleanup skipped" } else { "Included ($ProfileRoot)" }
-                    'Backup' = if ($null -ne $backupPath) { $backupPath } elseif ($NoBackup) { 'None (-NoBackup)' } else { 'Written on -Apply' }
+                    'Backup' = if ($null -ne $backupPath) { $backupPath } elseif ($nothingToDo) { 'None (nothing to change)' } elseif ($NoBackup) { 'None (-NoBackup)' } else { 'Written on -Apply' }
                 }
                 $report = [pscustomobject]@{
                     Mode = $reportMode; ToolVersion = $ToolVersion; GeneratedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')
@@ -599,7 +605,7 @@ try {
         }
     }
 
-    if ($applyChanges -and ($appliedPolicyCount + $removedObsoleteCount + $removedDnsCount + $updatedProfileFiles.Count) -gt 0) {
+    if ($applyChanges -and ($appliedPolicyCount + $removedPolicyCount + $updatedProfileFiles.Count) -gt 0) {
         Write-Step 'Enjoyed BraveDebloater? Show support by starring it on GitHub :) https://github.com/osfv/BraveDebloater'
     }
 }

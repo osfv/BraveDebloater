@@ -867,7 +867,7 @@ try {
     catch {
         $macMachineRefusal = $_.Exception.Message
     }
-    if ($macMachineRefusal -notlike 'macOS only keeps machine-wide Brave policies from a configuration profile*-ExportPolicyPath ./brave.mobileconfig*') {
+    if ($macMachineRefusal -notlike 'macOS only keeps machine-wide Brave policies from a configuration profile*-ExportPolicyPath ./brave.mobileconfig*replaces the BraveDebloater profile you installed before*') {
         throw "macOS LocalMachine -Apply was not refused: $macMachineRefusal"
     }
     if (Test-Path -LiteralPath $macMachineBackupDirectory) {
@@ -877,8 +877,21 @@ try {
     $macUserAutofillPreview = (& $scriptPath -Platform macOS -OnlyFeature Autofill -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $macUserAutofillPreview -Expected 'Skipped AutofillSettings: Brave accepts it only as a mandatory policy' -Context 'macOS current-user Autofill preview'
     Assert-TextDoesNotContain -Text $macUserAutofillPreview -Unexpected 'Would set AutofillSettings' -Context 'macOS current-user Autofill preview'
+    # With every selected policy skipped, the run must not promise that -Apply would change something.
+    Assert-TextContains -Text $macUserAutofillPreview -Expected 'Nothing to change: every selected policy was skipped' -Context 'macOS current-user Autofill preview'
+    Assert-TextDoesNotContain -Text $macUserAutofillPreview -Unexpected 'Rerun with -Apply' -Context 'macOS current-user Autofill preview'
+    # -List and the report show the plan that runs: the skipped policy is named, not listed as set.
+    $macUserAutofillList = (& $scriptPath -Platform macOS -OnlyFeature Autofill,Rewards -List *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $macUserAutofillList -Expected 'Skipped AutofillSettings' -Context 'macOS current-user Autofill -List'
+    Assert-TextContains -Text $macUserAutofillList -Expected 'Policy plan: 1 to set' -Context 'macOS current-user Autofill -List'
+    $macAutofillReport = Join-Path $tempRoot 'mac-autofill-report.html'
+    & $scriptPath -Platform macOS -OnlyFeature Autofill,Rewards -ProfileRoot $missingProfileRoot -ReportPath $macAutofillReport -NoOpenReport *> $null
+    $macAutofillReportText = [System.IO.File]::ReadAllText($macAutofillReport)
+    Assert-TextContains -Text $macAutofillReportText -Expected '<code>AutofillSettings</code></div><span>Skipped: Brave accepts it only as a mandatory policy.</span>' -Context 'macOS current-user Autofill report'
+    Assert-TextContains -Text $macAutofillReportText -Expected '1 skipped' -Context 'macOS current-user Autofill report'
     $macAutofillProfile = Join-Path $tempRoot 'autofill.mobileconfig'
-    & $scriptPath -Platform macOS -OnlyFeature Autofill -ExportPolicyPath $macAutofillProfile *> $null
+    $macAutofillExport = (& $scriptPath -Platform macOS -OnlyFeature Autofill -ExportPolicyPath $macAutofillProfile *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $macAutofillExport -Expected 'Installing it replaces the BraveDebloater profile you installed before, so export every policy you want in one command.' -Context 'macOS configuration profile export'
     Assert-TextContains -Text (Get-Content -LiteralPath $macAutofillProfile -Raw) -Expected '<key>AutofillSettings</key>' -Context 'macOS Autofill configuration profile'
     $macFileAutofillPreview = (& $scriptPath -Platform macOS -Scope LocalMachine -PolicyPath (Join-Path $tempRoot 'autofill.plist') -OnlyFeature Autofill -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $macFileAutofillPreview -Expected 'Would set AutofillSettings' -Context 'macOS plist file Autofill preview'

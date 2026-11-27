@@ -223,16 +223,20 @@ function Test-RestorePolicyTarget {
         profileFiles = @()
     }
     Set-JsonFileContent -Path $restorePath -Object $restoreBackup
-    Restore-RegistryBackup -BackupPath $restorePath -Manifest $manifest -AllowedPolicyPath $AllowedPath *> $null
-    if ($writes.Count -ne 0) { throw 'Restore preview called a policy writer.' }
     if ($ExpectRefusal) {
-        $refusal = ''
-        try { Restore-RegistryBackup -BackupPath $restorePath -Manifest $manifest -AllowedPolicyPath $AllowedPath -DoApply *> $null }
-        catch { $refusal = $_.Exception.Message }
-        if ($refusal -notlike "This backup targets $ExpectedPath, which macOS only fills from a configuration profile*") { throw "Restore to $ExpectedPath was not refused: $refusal" }
-        if ($writes.Count -ne 0) { throw 'A refused restore called a policy writer.' }
+        # The preview is refused too, and an unelevated run is not sent to sudo: root cannot restore this either.
+        function Test-IsAdministrator { return $false }
+        foreach ($apply in @($false, $true)) {
+            $refusal = ''
+            try { Restore-RegistryBackup -BackupPath $restorePath -Manifest $manifest -AllowedPolicyPath $AllowedPath -DoApply:$apply *> $null }
+            catch { $refusal = $_.Exception.Message }
+            if ($refusal -notlike "This backup targets $ExpectedPath, which macOS only fills from a configuration profile*") { throw "Restore to $ExpectedPath was not refused (apply: $apply): $refusal" }
+            if ($writes.Count -ne 0) { throw 'A refused restore called a policy writer.' }
+        }
         return
     }
+    Restore-RegistryBackup -BackupPath $restorePath -Manifest $manifest -AllowedPolicyPath $AllowedPath *> $null
+    if ($writes.Count -ne 0) { throw 'Restore preview called a policy writer.' }
     Restore-RegistryBackup -BackupPath $restorePath -Manifest $manifest -AllowedPolicyPath $AllowedPath -DoApply *> $null
     if ($writes.Count -ne 2 -or $writes[0].Operation -ne 'set' -or $writes[1].Operation -ne 'remove') {
         throw 'Restore did not call both policy writers.'
@@ -548,6 +552,11 @@ foreach ($managedWrite in @(
     catch { $managedMessage = $_.Exception.Message }
     if ($managedMessage -notlike 'macOS only keeps machine-wide Brave policies from a configuration profile*') { throw "A write to the macOS managed plist was not refused: $managedMessage" }
 }
+
+# A restored integer outside the 32-bit range keeps its value instead of failing the restore.
+$wideInteger = ConvertTo-ManagedPolicyValue -Definition ([pscustomobject]@{ type = 'DWord'; value = 5000000000; preserveValueType = $true })
+if ($wideInteger -isnot [long] -or $wideInteger -ne 5000000000) { throw 'A 64-bit recorded policy value was not preserved.' }
+if ((ConvertTo-ManagedPolicyValue -Definition ([pscustomobject]@{ type = 'DWord'; value = [long]2; preserveValueType = $true })) -isnot [int]) { throw 'A small recorded policy value did not stay a 32-bit integer.' }
 
 # Brave reads string policy values case-sensitively, so a differently cased value is not "already set".
 if (Test-PolicyValueMatches -ActualValue 'OFF' -ExpectedValue 'off' -Type String) { throw 'String policy comparison ignored case.' }

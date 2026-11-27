@@ -278,6 +278,9 @@ $autofill = $policies['AutofillSettings']
 if ($null -eq $autofill -or $autofill.type -ne 'Json' -or $autofill.value -isnot [System.Collections.IList] -or $autofill.value.Count -ne 1 -or $autofill.value[0].url_pattern -cne '*' -or ($autofill.value[0].blocked_types -join ',') -cne 'contact_info,payments') {
     throw 'AutofillSettings must block only contact_info and payments on all sites using a structured rule.'
 }
+if ($null -eq $autofill.PSObject.Properties['mandatoryOnly'] -or $autofill.mandatoryOnly -ne $true) {
+    throw 'AutofillSettings must be marked mandatoryOnly: Brave rejects it as a recommended policy, the level macOS current-user runs write.'
+}
 foreach ($legacyAutofill in @('AutofillCreditCardEnabled', 'AutofillAddressEnabled')) {
     if ($deprecatedPolicyNames -notcontains $legacyAutofill) { throw "Missing deprecated Autofill policy '$legacyAutofill' for backup compatibility." }
 }

@@ -188,7 +188,13 @@ function Get-MacOSManagedPolicyMessage {
     if ($Restore) {
         return "This backup targets $Path, which macOS only fills from a configuration profile, so it was not restored and nothing was changed. To undo machine-wide policies, remove the BraveDebloater Brave policies profile in System Settings > General > Device Management."
     }
-    return "macOS only keeps machine-wide Brave policies from a configuration profile, so nothing was written to $Path. Rerun the same command without -Apply and add -ExportPolicyPath ./brave.mobileconfig, then open that file and install it in System Settings > General > Device Management."
+    return "macOS only keeps machine-wide Brave policies from a configuration profile, so nothing was written to $Path. Rerun the same command without -Apply and add -ExportPolicyPath ./brave.mobileconfig, then open that file and install it in System Settings > General > Device Management. $(Get-ConfigurationProfileReplaceNote)"
+}
+
+function Get-ConfigurationProfileReplaceNote {
+    # Every exported profile carries the same PayloadIdentifier, so installing one replaces the last
+    # and drops the policies that only the last one had.
+    return 'Installing it replaces the BraveDebloater profile you installed before, so export every policy you want in one command.'
 }
 
 function Get-BravePolicyFileLocation {
@@ -392,7 +398,7 @@ function Get-PolicyTargetElevationHint {
     # Called for previews only. Says up front whether the matching -Apply run will need elevation,
     # so users are not surprised after reviewing a dry-run in an unelevated session.
     if ($Target.Kind -eq 'MacOSPlist' -and (Test-MacOSManagedPreferencesPath -Path $Target.Path)) {
-        return "-Apply cannot write $($Target.Path). macOS only keeps machine-wide policies from a configuration profile. Add -ExportPolicyPath ./brave.mobileconfig to this preview, then open that file and install it in System Settings > General > Device Management."
+        return "-Apply cannot write $($Target.Path). macOS only keeps machine-wide policies from a configuration profile. Add -ExportPolicyPath ./brave.mobileconfig to this preview, then open that file and install it in System Settings > General > Device Management. $(Get-ConfigurationProfileReplaceNote)"
     }
     if (Test-IsAdministrator) {
         return ''
@@ -490,7 +496,7 @@ function Get-PolicyValue {
             return [pscustomobject]@{ Exists = $true; Value = $value; Kind = 'DWord'; ReadError = $false }
         }
         if ($value -is [int] -or $value -is [long]) {
-            return [pscustomobject]@{ Exists = $true; Value = [int]$value; Kind = 'DWord'; ReadError = $false }
+            return [pscustomobject]@{ Exists = $true; Value = $value; Kind = 'DWord'; ReadError = $false }
         }
         if ($value -is [string]) {
             return [pscustomobject]@{ Exists = $true; Value = $value; Kind = 'String'; ReadError = $false }
@@ -710,7 +716,7 @@ function Set-PolicyValue {
     }
 
     if ($Target.Kind -eq 'MacOSDefaults') {
-        $typeFlag = if ($value -is [bool]) { '-bool' } elseif ($value -is [int]) { '-int' } else { '-string' }
+        $typeFlag = if ($value -is [bool]) { '-bool' } elseif ($value -is [int] -or $value -is [long]) { '-int' } else { '-string' }
         if ($Definition.type -eq 'Json') {
             & /usr/bin/defaults write $Target.Path $Name (ConvertTo-PlistScalar -Value $value)
         }
@@ -773,7 +779,8 @@ function Remove-PolicyValue {
         $global:LASTEXITCODE = 0
         $after = Get-PolicyValue -Target $Target -Name $Name
         if ($after.ReadError -or $after.Exists) {
-            throw "macOS did not remove policy '$Name' from $($Target.Path). Check file permissions, then rerun the command."
+            $cause = if ($Target.Kind -eq 'MacOSDefaults') { 'A configuration profile may set it: check System Settings > General > Device Management. Otherwise check file permissions' } else { 'Check file permissions' }
+            throw "macOS still reports policy '$Name' at $($Target.Path) after removing it. $cause, then rerun the command."
         }
     }
 }
@@ -964,7 +971,11 @@ function ConvertTo-ManagedPolicyValue {
             if ($Definition.value -is [bool]) {
                 return [bool]$Definition.value
             }
-            return [int]$Definition.value
+            $recorded = [long]$Definition.value
+            if ($recorded -ge [int]::MinValue -and $recorded -le [int]::MaxValue) {
+                return [int]$recorded
+            }
+            return $recorded
         }
 
         # Manifest values: 0/1 are only ever used for boolean policies (checked against the ADMX by
