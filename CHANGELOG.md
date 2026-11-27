@@ -14,6 +14,8 @@
 
 - On Linux, a `sudo` run now uses the Brave profile of the user who ran `sudo`. `sudo` sets `HOME` to `/root` on most systems, so `-IncludeProfilePreferences` looked under `/root/.config`, found no profile, and skipped the cleanup with a warning. `sudo pwsh ./Invoke-BraveDebloat.ps1 -UndoFromBackup Latest -Apply` then failed with "Backup profile target is outside the selected profile root" for a backup that held profile files. Apply, undo, and `-Doctor` now resolve the same folder from `SUDO_USER`, and the run prints it. `-ProfileRoot` and an absolute `XDG_CONFIG_HOME` still take priority. The restore error now names the selected root and says to pass `-ProfileRoot`, and a root run that finds no profile says the same.
 
+- Linux runs no longer call their target `CurrentUser`. Brave on Linux reads `/etc/brave/policies/managed/` for every user and treats those policies as mandatory, and `-Scope` never changed that. The run output, reports, and new backups now show `Scope: LocalMachine` and say that the file applies to every user, `-Doctor` drops the duplicate `CurrentUser` column for the single policy file, and the README and usage guide describe Linux as machine-wide.
+
 - Recorded Brave policy template `159.1.102.46`. No policies were added, removed, deprecated, or reactivated.
 
 - Runs that reach the script body now end with a link to report problems: https://github.com/osfv/BraveDebloater/issues/new/choose. When a run stops with an error, including a `src/` file that fails to load, the line asks for the command and the full error. The error message and exit code stay the same. Invalid parameter values such as `-Preset Foo` fail before the script starts and show no link.

@@ -205,6 +205,20 @@ function Get-PolicyTarget {
     }
 }
 
+function Get-EffectiveScopeName {
+    param(
+        [Parameter(Mandatory = $true)]$Target,
+        [string]$ScopeName
+    )
+
+    # Brave on Linux reads one set of policy files for every user, as mandatory policies. It has no
+    # per-user location, so a JSON file target is machine-wide whatever -Scope says.
+    if ($Target.Kind -eq 'JsonFile') {
+        return 'LocalMachine'
+    }
+    return $ScopeName
+}
+
 function Test-MacOSManagedPreferencesPath {
     param([string]$Path)
 

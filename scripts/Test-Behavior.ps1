@@ -87,6 +87,7 @@ try {
 
     $dnsDoctorWithoutOutput = (& $scriptPath -Doctor -Platform Linux -PolicyPath $dnsDoctorWithoutPath -ProfileRoot $missingProfileRoot -BackupDirectory $doctorBackupDirectory *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $dnsDoctorWithoutOutput -Expected 'DNS over HTTPS: not managed' -Context 'Doctor target without DNS policies'
+    Assert-TextDoesNotContain -Text $dnsDoctorWithoutOutput -Unexpected 'CurrentUser' -Context 'Doctor report for the single Linux policy file'
     Assert-TextDoesNotContain -Text $dnsDoctorWithoutOutput -Unexpected 'Would set' -Context 'Doctor target without DNS policies'
     Assert-TextDoesNotContain -Text $dnsDoctorWithoutOutput -Unexpected '[dry-run]' -Context 'Doctor target without DNS policies'
 
@@ -896,7 +897,12 @@ try {
     $macFileAutofillPreview = (& $scriptPath -Platform macOS -Scope LocalMachine -PolicyPath (Join-Path $tempRoot 'autofill.plist') -OnlyFeature Autofill -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $macFileAutofillPreview -Expected 'Would set AutofillSettings' -Context 'macOS plist file Autofill preview'
     $linuxDefaultPreview = (& $scriptPath -Platform Linux -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
-    Assert-TextContains -Text $linuxDefaultPreview -Expected '/etc/brave/policies/managed/BraveDebloater.json' -Context 'unelevated Linux default path preview'
+    # Linux has one policy location for every user, so the run never calls it CurrentUser.
+    foreach ($linuxScopePreview in @($linuxDefaultPreview, (& $scriptPath -Platform Linux -Scope CurrentUser -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096))) {
+        Assert-TextContains -Text $linuxScopePreview -Expected 'Scope: LocalMachine (/etc/brave/policies/managed/BraveDebloater.json)' -Context 'unelevated Linux default path preview'
+        Assert-TextContains -Text $linuxScopePreview -Expected 'this file applies to every user on this computer as mandatory policy' -Context 'unelevated Linux default path preview'
+        Assert-TextDoesNotContain -Text $linuxScopePreview -Unexpected 'CurrentUser' -Context 'unelevated Linux default path preview'
+    }
     Assert-TextContains -Text $linuxDefaultPreview -Expected 'Dry-run complete.' -Context 'unelevated Linux default path preview'
     Assert-TextDoesNotContain -Text $linuxDefaultPreview -Unexpected 'starring it on GitHub' -Context 'unelevated Linux default path preview'
 
@@ -904,6 +910,8 @@ try {
     Assert-TextContains -Text $ignoredPolicyPathOutput -Expected '-PolicyPath is ignored for Windows CurrentUser policies' -Context 'ignored -PolicyPath output'
     $linuxPolicyPathOutput = (& $scriptPath -Platform Linux -OnlyFeature Rewards -ProfileRoot $missingProfileRoot -PolicyPath (Join-Path $tempRoot 'used.json') *>&1 | Out-String -Width 4096)
     Assert-TextDoesNotContain -Text $linuxPolicyPathOutput -Unexpected '-PolicyPath is ignored' -Context 'Linux -PolicyPath output'
+    Assert-TextContains -Text $linuxPolicyPathOutput -Expected 'Scope: LocalMachine (' -Context 'Linux -PolicyPath output'
+    Assert-TextDoesNotContain -Text $linuxPolicyPathOutput -Unexpected 'applies to every user' -Context 'Linux -PolicyPath output'
 
     # A forced Windows platform on another OS has no LOCALAPPDATA; the run must still preview cleanly.
     $forcedWindowsOutput = (& $scriptPath -Platform Windows -OnlyFeature Rewards *>&1 | Out-String -Width 4096)
@@ -939,6 +947,9 @@ try {
     # Profile copies are named after their path under the profile root, so a deep backup folder does not
     # push the copy past the 260-character limit of Windows PowerShell 5.1 file APIs.
     $utf8ProfileCopyName = Split-Path -Leaf ([string]@((Get-Content -LiteralPath $utf8Backup -Raw | ConvertFrom-Json).profileFiles)[0].backupPath)
+    if ([string](Get-Content -LiteralPath $utf8Backup -Raw | ConvertFrom-Json).scope -ne 'LocalMachine') {
+        throw 'A Linux backup did not record the machine-wide scope.'
+    }
     if ($utf8ProfileCopyName -ne 'Default_Preferences.bak') {
         throw "Profile backup copy should be named after its path under the profile root, got '$utf8ProfileCopyName'."
     }
@@ -1989,6 +2000,7 @@ try {
     & $scriptPath -Platform Linux -OnlyFeature Rewards -PolicyPath $reportPolicyPath -NoBackup -ReportPath $noBackupReportPath -NoOpenReport *>&1 | Out-Null
     $noBackupReport = [System.IO.File]::ReadAllText($noBackupReportPath)
     Assert-TextContains -Text $noBackupReport -Expected 'Backup: None (-NoBackup)' -Context '-NoBackup preview report'
+    Assert-TextContains -Text $noBackupReport -Expected 'Scope: LocalMachine' -Context 'Linux preview report'
     Assert-TextContains -Text $noBackupReport -Expected 'writes no backup' -Context '-NoBackup preview report'
     Assert-TextDoesNotContain -Text $noBackupReport -Unexpected 'Written on -Apply' -Context '-NoBackup preview report'
     Assert-TextDoesNotContain -Text $noBackupReport -Unexpected 'the report will include the undo command' -Context '-NoBackup preview report'

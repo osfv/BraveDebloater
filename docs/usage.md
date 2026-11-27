@@ -169,7 +169,7 @@ It checks policy locations, detected feature status, DNS-over-HTTPS mode and res
 
 On macOS, Doctor reads managed, obsolete, and explicitly blocked policy names individually. It does not enumerate other names, including policies covered only by a safety pattern. The report identifies this limit and marks policy read failures as an incomplete safety check. Open `brave://policy` to review the full list.
 
-This helps after testing other debloat tools. Machine-wide policies can make Brave settings appear managed for every Windows user, even when current-user policies look empty.
+This helps after testing other debloat tools. Machine-wide policies can make Brave settings appear managed for every Windows user, even when current-user policies look empty. On Linux, where one policy file serves every user, the report lists `LocalMachine` only.
 
 ## Restore
 
@@ -195,15 +195,20 @@ If a profile copy referenced by a backup is missing, restore stops before changi
 
 ## Machine-wide mode
 
-Current-user policy is the default and does not require administrator/root rights.
+On Windows and macOS, current-user policy is the default and does not require administrator rights.
 
-Previewing machine-wide policy works from a normal session and prints a note when the matching `-Apply` run will need elevation. To apply machine-wide policy, run PowerShell as administrator/root:
+Previewing machine-wide policy works from a normal session and prints a note when the matching `-Apply` run will need elevation. To apply machine-wide policy on Windows, run PowerShell as administrator:
 
 ```powershell
 .\Invoke-BraveDebloat.ps1 -Preset Extreme -Scope LocalMachine -Apply
 ```
 
-On Linux the default target `/etc/brave/policies/managed/BraveDebloater.json` also needs root, so run the apply command with `sudo pwsh`.
+Linux has no current-user policy location. Brave reads `/etc/brave/policies/managed/` for every user on the computer and treats those policies as mandatory. Every Linux run is therefore machine-wide: `-Scope` changes nothing there, and the output, reports, and backups show `Scope: LocalMachine`. Previews and `-Doctor` work from a normal session. Apply and undo write to `/etc/brave/policies/managed/BraveDebloater.json`, which needs root:
+
+```powershell
+sudo pwsh ./Invoke-BraveDebloat.ps1 -Preset Extreme -Apply
+sudo pwsh ./Invoke-BraveDebloat.ps1 -UndoFromBackup Latest -Apply
+```
 
 ## Platform support
 
@@ -228,7 +233,7 @@ macOS takes machine-wide (mandatory) policies from a configuration profile. A ma
 
 Open `brave.mobileconfig`, then install it in System Settings > General > Device Management. Chromium reads policies from a configuration profile as Mandatory, the level `AutofillSettings` needs. Open `brave://policy` after installing to confirm. Every export carries the same profile identifier, so installing one replaces the BraveDebloater profile you installed before: export every policy you want in one command, not one feature at a time. To undo, remove the BraveDebloater Brave policies profile there. `-Doctor -Scope LocalMachine` reads the managed plist that the profile creates. A restore refuses backups that target it, in a preview too, and points to the profile instead of asking for `sudo`. With `-PolicyPath`, machine-wide runs write that plist file instead, for testing or for your own deployment tool.
 
-Linux writes JSON policy values to `/etc/brave/policies/managed/BraveDebloater.json`. Other values in that file, including date strings, are kept as written. On PowerShell 7.0 to 7.4, which cannot keep date strings as text, apply and restore stop before changing a policy file that contains them.
+Linux writes JSON policy values to `/etc/brave/policies/managed/BraveDebloater.json`, a machine-wide, mandatory location (see [Machine-wide mode](#machine-wide-mode)). Other values in that file, including date strings, are kept as written. On PowerShell 7.0 to 7.4, which cannot keep date strings as text, apply and restore stop before changing a policy file that contains them.
 
 Android and iOS/iPadOS do not support local writes from this script. Use `-ExportPolicyPath` to create an MDM payload. Brave documents limited iOS/iPadOS support for Playlist, VPN, News, Talk, Rewards, and AI Chat policies.
 
