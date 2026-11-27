@@ -1,0 +1,92 @@
+name: Bug report
+description: Something went wrong, or BraveDebloater did not do what it said.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. A full command and output let me reproduce the problem.
+        Security problems go to [private vulnerability reporting](https://github.com/osfv/BraveDebloater/security/advisories/new), not a public issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran.
+      placeholder: .\Invoke-BraveDebloat.ps1 -Preset Extreme -Apply
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The full output, including the error. Replace your username and personal paths.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: BraveDebloater version
+      description: The first line of `-Version` output, or the commit.
+      placeholder: BraveDebloater 0.9.3
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Android or iOS (MDM export)
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - install.ps1 one-liner
+        - Scoop
+        - winget
+        - Release zip
+        - git clone
+    validations:
+      required: true
+  - type: dropdown
+    id: powershell
+    attributes:
+      label: PowerShell
+      options:
+        - Windows PowerShell 5.1
+        - PowerShell 7
+    validations:
+      required: true
+  - type: input
+    id: brave
+    attributes:
+      label: Brave version and channel
+      description: From brave://version.
+      placeholder: 1.x.x Stable
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Scope (CurrentUser or LocalMachine), screenshots of brave://policy, or backup metadata with personal paths removed.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues.
+          required: true
+        - label: I removed usernames and personal paths from the output.
+          required: true
