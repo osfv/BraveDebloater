@@ -2111,7 +2111,7 @@ try {
             }
             $sudoDoctorOutput = (& sudo -n env @sudoEnvironment (Get-Process -Id $PID).Path -NoProfile -File $scriptPath -Doctor -BackupDirectory $doctorBackupDirectory 2>&1 | Out-String -Width 4096)
             $global:LASTEXITCODE = 0
-            Assert-TextContains -Text $sudoDoctorOutput -Expected (Join-Path (Get-PasswdEntry -UserId ([string](& id -u))).Split(':')[5] '.config/BraveSoftware/Brave-Browser') -Context 'sudo -Doctor profile root'
+            Assert-TextContains -Text $sudoDoctorOutput -Expected (Join-Path (Get-PasswdEntry -UserId ([string](& /usr/bin/id -u))).Split(':')[5] '.config/BraveSoftware/Brave-Browser') -Context 'sudo -Doctor profile root'
         }
 
         # xdg-open must receive a report path with spaces as one argument.
