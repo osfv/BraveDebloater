@@ -474,13 +474,13 @@ function Get-PolicyValue {
             if ($LASTEXITCODE -ne 0) {
                 throw "Could not read $($Target.Path): $(($lintOutput -join ' ').Trim())"
             }
-            $jsonText = @(& /usr/bin/plutil -extract $Name json -o - -- $Target.Path 2>$null)
+            $xmlText = @(& /usr/bin/plutil -extract $Name xml1 -o - -- $Target.Path 2>$null)
             $found = $LASTEXITCODE -eq 0
             $global:LASTEXITCODE = 0
             if (-not $found) {
                 return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
             }
-            $value = (ConvertFrom-JsonText -Json ('{"value":' + ($jsonText -join "`n") + '}')).value
+            $value = ConvertFrom-PlistXml -Text ($xmlText -join "`n")
         }
         catch {
             $global:LASTEXITCODE = 0
@@ -1058,6 +1058,61 @@ function ConvertTo-PlistScalar {
     if ($Value -isnot [string]) { throw 'Unsupported value in structured plist policy.' }
     $escaped = [System.Security.SecurityElement]::Escape([string]$Value)
     return "<string>$escaped</string>"
+}
+
+function ConvertFrom-PlistNode {
+    param([Parameter(Mandatory = $true)][System.Xml.XmlElement]$Node)
+
+    $children = @($Node.ChildNodes | Where-Object { $_.NodeType -eq [System.Xml.XmlNodeType]::Element })
+    switch ($Node.LocalName) {
+        'string' { return [string]$Node.InnerText }
+        'integer' {
+            $number = [int64]::Parse($Node.InnerText.Trim(), [System.Globalization.CultureInfo]::InvariantCulture)
+            if ($number -ge [int]::MinValue -and $number -le [int]::MaxValue) { return [int]$number }
+            return $number
+        }
+        'real' { return [double]::Parse($Node.InnerText.Trim(), [System.Globalization.CultureInfo]::InvariantCulture) }
+        'true' { return $true }
+        'false' { return $false }
+        'array' {
+            $items = New-Object System.Collections.Generic.List[object]
+            foreach ($child in $children) {
+                [void]$items.Add((ConvertFrom-PlistNode -Node $child))
+            }
+            return ,$items.ToArray()
+        }
+        'dict' {
+            $entries = [ordered]@{}
+            for ($index = 0; $index + 1 -lt $children.Count; $index += 2) {
+                if ($children[$index].LocalName -ne 'key') { throw 'A plist dictionary entry has no key.' }
+                $entries[[string]$children[$index].InnerText] = ConvertFrom-PlistNode -Node $children[$index + 1]
+            }
+            return [pscustomobject]$entries
+        }
+        default { throw "Unsupported plist value type '$($Node.LocalName)'." }
+    }
+}
+
+function ConvertFrom-PlistXml {
+    param([Parameter(Mandatory = $true)][string]$Text)
+
+    $settings = New-Object System.Xml.XmlReaderSettings
+    $settings.DtdProcessing = [System.Xml.DtdProcessing]::Ignore
+    $settings.XmlResolver = $null
+    $reader = [System.Xml.XmlReader]::Create((New-Object System.IO.StringReader($Text)), $settings)
+    try {
+        $document = New-Object System.Xml.XmlDocument
+        $document.XmlResolver = $null
+        $document.Load($reader)
+    }
+    finally {
+        $reader.Dispose()
+    }
+    $rootValue = @($document.DocumentElement.ChildNodes | Where-Object { $_.NodeType -eq [System.Xml.XmlNodeType]::Element })
+    if ($document.DocumentElement.LocalName -ne 'plist' -or $rootValue.Count -ne 1) {
+        throw 'Expected a plist document with one value.'
+    }
+    return ,(ConvertFrom-PlistNode -Node $rootValue[0])
 }
 
 function ConvertTo-PlistDocument {

@@ -525,6 +525,19 @@ if ((Resolve-PlatformName -Name Auto) -eq 'macOS') {
     Remove-PolicyValue -Target $macTarget -Name DnsOverHttpsMode
 }
 
+$plistHeader = '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0">'
+foreach ($case in @(
+        @{ Xml = '<string>automatic</string>'; Expected = 'automatic'; Type = 'String' },
+        @{ Xml = '<integer>2</integer>'; Expected = 2; Type = 'DWord' },
+        @{ Xml = '<false/>'; Expected = 0; Type = 'DWord' },
+        @{ Xml = (ConvertTo-PlistScalar -Value $autofill.value); Expected = $autofill.value; Type = 'Json' }
+    )) {
+    $parsedPlist = ConvertFrom-PlistXml -Text ($plistHeader + $case.Xml + '</plist>')
+    if (-not (Test-PolicyValueMatches -ActualValue $parsedPlist -ExpectedValue $case.Expected -Type $case.Type)) { throw "plutil xml1 output $($case.Xml) did not parse to the written value." }
+}
+$parsedPlistArray = ConvertFrom-PlistXml -Text ($plistHeader + '<array><string>x</string></array></plist>')
+if ($parsedPlistArray -isnot [System.Collections.IList] -or $parsedPlistArray.Count -ne 1) { throw 'A one-item plist array did not stay an array.' }
+
 $managedPlistTarget = [pscustomobject]@{ Platform = 'macOS'; Kind = 'MacOSPlist'; Path = '/Library/Managed Preferences/com.brave.Browser.plist' }
 foreach ($managedWrite in @(
         { Set-PolicyValue -Target $managedPlistTarget -Name BraveRewardsDisabled -Definition ([pscustomobject]@{ type = 'DWord'; value = 1 }) },
