@@ -799,6 +799,7 @@ try {
     Assert-TextContains -Text $iosMobileConfig -Expected 'com.apple.ManagedClient.preferences' -Context 'iOS mobileconfig'
     Assert-TextContains -Text $iosMobileConfig -Expected 'BraveRewardsDisabled' -Context 'iOS mobileconfig'
     Assert-TextContains -Text $iosMobileConfig -Expected '<true/>' -Context 'iOS mobileconfig'
+    Assert-TextDoesNotContain -Text $iosMobileConfig -Unexpected 'PayloadScope' -Context 'iOS mobileconfig'
 
     $iosUnsupportedFailed = $false
     try {
@@ -904,6 +905,12 @@ try {
     $macAutofillExport = (& $scriptPath -Platform macOS -OnlyFeature Autofill -ExportPolicyPath $macAutofillProfile *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $macAutofillExport -Expected 'Installing it replaces the BraveDebloater profile you installed before, so export every policy you want in one command.' -Context 'macOS configuration profile export'
     Assert-TextContains -Text (Get-Content -LiteralPath $macAutofillProfile -Raw) -Expected '<key>AutofillSettings</key>' -Context 'macOS Autofill configuration profile'
+    Assert-TextContains -Text $macAutofillExport -Expected 'It applies to every user on this Mac, so macOS asks for an administrator password.' -Context 'macOS configuration profile export'
+    [xml]$macAutofillProfileXml = Get-Content -LiteralPath $macAutofillProfile -Raw
+    # Without PayloadScope=System, macOS installs the profile for one user, outside the plist -Doctor -Scope LocalMachine reads.
+    if ($macAutofillProfileXml.SelectSingleNode('/plist/dict/key[text()="PayloadScope"]/following-sibling::*[1]').InnerText -cne 'System') {
+        throw 'The macOS configuration profile export did not set PayloadScope to System.'
+    }
     $macFileAutofillPreview = (& $scriptPath -Platform macOS -Scope LocalMachine -PolicyPath (Join-Path $tempRoot 'autofill.plist') -OnlyFeature Autofill -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $macFileAutofillPreview -Expected 'Would set AutofillSettings' -Context 'macOS plist file Autofill preview'
     $linuxDefaultPreview = (& $scriptPath -Platform Linux -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)

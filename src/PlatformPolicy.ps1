@@ -254,6 +254,13 @@ function Get-MacOSManagedPolicyMessage {
     return "macOS only keeps machine-wide Brave policies from a configuration profile, so nothing was written to $Path. Rerun the same command without -Apply and add -ExportPolicyPath ./brave.mobileconfig, then open that file and install it in System Settings > General > Device Management. $(Get-ConfigurationProfileReplaceNote)"
 }
 
+function Get-MacOSUserProfilePolicyPath {
+    # A User-level configuration profile fills a per-user folder instead of the machine-wide plist.
+    # Under sudo, report the account that ran sudo, not root.
+    $userName = if (-not [string]::IsNullOrWhiteSpace($env:SUDO_USER)) { $env:SUDO_USER } else { [Environment]::UserName }
+    return "/Library/Managed Preferences/$userName/com.brave.Browser.plist"
+}
+
 function Get-ConfigurationProfileReplaceNote {
     # Every exported profile carries the same PayloadIdentifier, so installing one replaces the last
     # and drops the policies that only the last one had.
@@ -1193,7 +1200,8 @@ function ConvertTo-PlistDocument {
     param(
         [Parameter(Mandatory = $true)]$Payload,
         [string]$Domain = 'com.brave.Browser',
-        [switch]$MobileConfig
+        [switch]$MobileConfig,
+        [ValidateSet('', 'System', 'User')][string]$PayloadScope = ''
     )
 
     $lines = New-Object System.Collections.Generic.List[string]
@@ -1240,6 +1248,11 @@ function ConvertTo-PlistDocument {
         [void]$lines.Add('  <string>BraveDebloater Brave policies</string>')
         [void]$lines.Add('  <key>PayloadIdentifier</key>')
         [void]$lines.Add('  <string>org.bravedebloater.brave</string>')
+        if (-not [string]::IsNullOrEmpty($PayloadScope)) {
+            # macOS installs a profile without PayloadScope at the User level. iOS ignores the key.
+            [void]$lines.Add('  <key>PayloadScope</key>')
+            [void]$lines.Add("  <string>$PayloadScope</string>")
+        }
         [void]$lines.Add('  <key>PayloadType</key>')
         [void]$lines.Add('  <string>Configuration</string>')
         [void]$lines.Add('  <key>PayloadUUID</key>')
@@ -1353,7 +1366,10 @@ function Export-PolicyPayload {
             Set-TextFileContent -Path $Path -Content $document -Encoding ([System.Text.Encoding]::Unicode)
         }
         'MobileConfig' {
-            Set-TextFileContent -Path $Path -Content (ConvertTo-PlistDocument -Payload $Payload -MobileConfig)
+            # A System profile is what fills /Library/Managed Preferences/com.brave.Browser.plist,
+            # the machine-wide target that -Doctor -Scope LocalMachine reads.
+            $payloadScope = if ($Target.Platform -eq 'macOS') { 'System' } else { '' }
+            Set-TextFileContent -Path $Path -Content (ConvertTo-PlistDocument -Payload $Payload -MobileConfig -PayloadScope $payloadScope)
         }
         default {
             Set-TextFileContent -Path $Path -Content (ConvertTo-PlistDocument -Payload $Payload)

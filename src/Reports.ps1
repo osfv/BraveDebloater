@@ -177,6 +177,17 @@ function Show-DoctorReport {
         # scopes resolve to the same path. List it once to avoid double-counting entries.
         $reports = @($localMachineReport)
     }
+    # BraveDebloater 0.9.4 and earlier exported macOS profiles without PayloadScope, which macOS
+    # installs for one user. Brave applies those as mandatory too, so report them instead of
+    # calling the policies missing.
+    $userProfileReport = $null
+    if ($currentUserTarget.Kind -eq 'MacOSDefaults') {
+        $userProfileTarget = [pscustomobject]@{ Platform = 'macOS'; Kind = 'MacOSPlist'; Path = (Get-MacOSUserProfilePolicyPath) }
+        if (Test-Path -LiteralPath $userProfileTarget.Path) {
+            $userProfileReport = Get-PolicyReport -Target $userProfileTarget -ScopeName 'CurrentUser profile' -PolicyNames $probedPolicyNames.ToArray()
+            $reports = @($currentUserReport, $userProfileReport, $localMachineReport)
+        }
+    }
     $unreadableScopes = New-Object System.Collections.Generic.List[string]
 
     foreach ($report in $reports) {
@@ -195,6 +206,10 @@ function Show-DoctorReport {
         else {
             Write-Step "$($report.Scope) policies: none detected."
         }
+    }
+
+    if ($null -ne $userProfileReport -and $userProfileReport.CanRead -and $userProfileReport.Entries.Count -gt 0) {
+        Write-Step "CurrentUser profile: a configuration profile installed for this user only sets $($userProfileReport.Entries.Count) value(s) in $($userProfileReport.Path). Brave applies them as mandatory for this user. To apply them to every user, export the profile again and install it."
     }
 
     if (-not $localMachineReport.CanRead) {
@@ -262,6 +277,12 @@ function Show-DoctorReport {
     }
 
     $currentUserPolicies = Get-PolicyEntryMap -Entries $currentUserReport.Entries
+    if ($null -ne $userProfileReport -and $userProfileReport.CanRead) {
+        # Profile values are mandatory and take precedence over the recommended defaults domain.
+        foreach ($entry in @($userProfileReport.Entries)) {
+            $currentUserPolicies[[string]$entry.Name] = $entry
+        }
+    }
     $localMachinePolicies = Get-PolicyEntryMap -Entries $localMachineReport.Entries
 
     Write-Step 'Policy scopes:'
@@ -290,7 +311,7 @@ function Show-DoctorReport {
     $featureRows = foreach ($feature in @($Features)) {
         [pscustomobject]@{
             Feature = [string]$feature.id
-            CurrentUser = if (-not $currentUserReport.CanRead) { 'Read failed' } else { Get-FeaturePolicyStatus -Feature $feature -PolicyEntries $currentUserPolicies -PolicyDefinitions $PolicyDefinitions }
+            CurrentUser = if (-not $currentUserReport.CanRead -or ($null -ne $userProfileReport -and -not $userProfileReport.CanRead)) { 'Read failed' } else { Get-FeaturePolicyStatus -Feature $feature -PolicyEntries $currentUserPolicies -PolicyDefinitions $PolicyDefinitions }
             LocalMachine = if (-not $localMachineReport.CanRead) { 'Read failed' } else { Get-FeaturePolicyStatus -Feature $feature -PolicyEntries $localMachinePolicies -PolicyDefinitions $PolicyDefinitions }
             Label = [string]$feature.label
         }

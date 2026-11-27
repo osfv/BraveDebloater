@@ -451,6 +451,24 @@ foreach ($mobileConfig in @($false, $true)) {
     if (($rules.SelectNodes('dict/key[text()="blocked_types"]/following-sibling::*[1]/string') | ForEach-Object { $_.InnerText }) -join ',' -cne 'contact_info,payments') { throw 'Plist export lost the blocked Autofill types.' }
 }
 
+# Only an explicit PayloadScope reaches the profile, at the top level where macOS reads it.
+[xml]$systemProfile = ConvertTo-PlistDocument -Payload $autofillPayload -MobileConfig -PayloadScope System
+if ($systemProfile.SelectSingleNode('/plist/dict/key[text()="PayloadScope"]/following-sibling::*[1]').InnerText -cne 'System') { throw 'Configuration profile export did not write PayloadScope System at the top level.' }
+if ($systemProfile.SelectNodes('//key[text()="PayloadScope"]').Count -ne 1) { throw 'Configuration profile export wrote PayloadScope more than once.' }
+[xml]$unscopedProfile = ConvertTo-PlistDocument -Payload $autofillPayload -MobileConfig
+if ($null -ne $unscopedProfile.SelectSingleNode('//key[text()="PayloadScope"]')) { throw 'Configuration profile export wrote PayloadScope without being asked.' }
+
+$savedSudoUser = $env:SUDO_USER
+try {
+    $env:SUDO_USER = 'bd-sudo-user'
+    if ((Get-MacOSUserProfilePolicyPath) -cne '/Library/Managed Preferences/bd-sudo-user/com.brave.Browser.plist') { throw 'The macOS user profile policy path did not use the sudo account.' }
+    $env:SUDO_USER = $null
+    if ((Get-MacOSUserProfilePolicyPath) -cne "/Library/Managed Preferences/$([Environment]::UserName)/com.brave.Browser.plist") { throw 'The macOS user profile policy path did not use the current account.' }
+}
+finally {
+    $env:SUDO_USER = $savedSudoUser
+}
+
 function Test-AutofillRegistryWriter {
     function Test-Path { param($LiteralPath) return $true }
     function New-ItemProperty {
