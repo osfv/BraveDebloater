@@ -623,10 +623,13 @@ function Restore-RegistryBackup {
         if ($policyTarget.Kind -in @('MacOSDefaults', 'MacOSPlist') -and $currentPlatform -ne 'macOS') {
             throw "This backup restores macOS policies and cannot be applied on $currentPlatform. Run the restore on the Mac it was created on."
         }
+        if ($policyTarget.Kind -eq 'MacOSPlist' -and (Test-MacOSManagedPreferencesPath -Path $policyTarget.Path)) {
+            throw (Get-MacOSManagedPolicyMessage -Path $policyTarget.Path -Restore)
+        }
 
         # Brave rewrites Preferences on exit, so restoring profile files while it runs would be lost
         # or could corrupt the profile. Stop before touching anything so the restore is all-or-nothing.
-        if ($profileFiles.Count -gt 0 -and (Test-BraveRunning)) {
+        if ($profileFiles.Count -gt 0 -and (Test-BraveUsingProfileRoot -Root $ProfileRoot)) {
             throw 'Brave is running, so this backup was not restored. It includes profile Preferences files. Close Brave, then rerun the restore command.'
         }
     }

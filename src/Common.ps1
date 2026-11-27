@@ -420,3 +420,33 @@ function Get-BraveProcess {
 function Test-BraveRunning {
     return (@(Get-BraveProcess).Count -gt 0)
 }
+
+function Test-BraveUsingProfileRoot {
+    param([string]$Root)
+
+    if (-not (Test-BraveRunning)) {
+        return $false
+    }
+    if ([string]::IsNullOrWhiteSpace($Root) -or -not (Test-Path -LiteralPath $Root -PathType Container)) {
+        return $true
+    }
+    try {
+        foreach ($entry in [System.IO.Directory]::GetFileSystemEntries($Root)) {
+            if ([System.IO.Path]::GetFileName($entry) -in @('SingletonLock', 'lockfile')) {
+                return $true
+            }
+        }
+        $rootPath = (Resolve-FileSystemLinkPath -Path $Root).TrimEnd('\', '/')
+        $platformName = Resolve-PlatformName -Name 'Auto'
+        foreach ($channel in @('Stable', 'Beta', 'Nightly')) {
+            $defaultRoot = Get-DefaultProfileRoot -PlatformName $platformName -Channel $channel
+            if (-not [string]::IsNullOrWhiteSpace($defaultRoot) -and [string]::Equals($rootPath, (Resolve-FileSystemLinkPath -Path $defaultRoot).TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)) {
+                return $true
+            }
+        }
+    }
+    catch {
+        return $true
+    }
+    return $false
+}

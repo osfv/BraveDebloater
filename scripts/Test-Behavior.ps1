@@ -161,7 +161,7 @@ try {
         function Test-Path { param([string]$LiteralPath) return $false }
         foreach ($kind in @('MacOSDefaults', 'MacOSPlist')) {
             $report = Get-PolicyReport -Target ([pscustomobject]@{ Kind = $kind; Path = 'com.brave.Browser' }) -ScopeName CurrentUser -PolicyNames BraveShieldsDisabledForUrls
-            if ($report.CanRead -or $report.ErrorMessage -notlike '*defaults*unavailable*') {
+            if ($report.CanRead -or $report.ErrorMessage -notlike '*/usr/bin/*unavailable on this host*') {
                 throw 'macOS policy inspection reported success without the native reader.'
             }
         }
@@ -858,6 +858,30 @@ try {
     Assert-TextContains -Text $machinePreview -Expected 'Dry-run complete.' -Context 'unelevated LocalMachine preview'
     $macMachinePreview = (& $scriptPath -Platform macOS -Scope LocalMachine -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $macMachinePreview -Expected 'Dry-run complete.' -Context 'unelevated macOS LocalMachine preview'
+    Assert-TextContains -Text $macMachinePreview -Expected '-Apply cannot write /Library/Managed Preferences/com.brave.Browser.plist.' -Context 'macOS LocalMachine preview'
+    $macMachineBackupDirectory = Join-Path $tempRoot 'MacMachineBackups'
+    $macMachineRefusal = ''
+    try {
+        & $scriptPath -Platform macOS -Scope LocalMachine -OnlyFeature Rewards -ProfileRoot $missingProfileRoot -BackupDirectory $macMachineBackupDirectory -Apply *> $null
+    }
+    catch {
+        $macMachineRefusal = $_.Exception.Message
+    }
+    if ($macMachineRefusal -notlike 'macOS only keeps machine-wide Brave policies from a configuration profile*-ExportPolicyPath ./brave.mobileconfig*') {
+        throw "macOS LocalMachine -Apply was not refused: $macMachineRefusal"
+    }
+    if (Test-Path -LiteralPath $macMachineBackupDirectory) {
+        throw 'A refused macOS LocalMachine -Apply wrote a backup.'
+    }
+
+    $macUserAutofillPreview = (& $scriptPath -Platform macOS -OnlyFeature Autofill -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $macUserAutofillPreview -Expected 'Skipped AutofillSettings: Brave accepts it only as a mandatory policy' -Context 'macOS current-user Autofill preview'
+    Assert-TextDoesNotContain -Text $macUserAutofillPreview -Unexpected 'Would set AutofillSettings' -Context 'macOS current-user Autofill preview'
+    $macAutofillProfile = Join-Path $tempRoot 'autofill.mobileconfig'
+    & $scriptPath -Platform macOS -OnlyFeature Autofill -ExportPolicyPath $macAutofillProfile *> $null
+    Assert-TextContains -Text (Get-Content -LiteralPath $macAutofillProfile -Raw) -Expected '<key>AutofillSettings</key>' -Context 'macOS Autofill configuration profile'
+    $macFileAutofillPreview = (& $scriptPath -Platform macOS -Scope LocalMachine -PolicyPath (Join-Path $tempRoot 'autofill.plist') -OnlyFeature Autofill -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $macFileAutofillPreview -Expected 'Would set AutofillSettings' -Context 'macOS plist file Autofill preview'
     $linuxDefaultPreview = (& $scriptPath -Platform Linux -OnlyFeature Rewards -ProfileRoot $missingProfileRoot *>&1 | Out-String -Width 4096)
     Assert-TextContains -Text $linuxDefaultPreview -Expected '/etc/brave/policies/managed/BraveDebloater.json' -Context 'unelevated Linux default path preview'
     Assert-TextContains -Text $linuxDefaultPreview -Expected 'Dry-run complete.' -Context 'unelevated Linux default path preview'

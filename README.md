@@ -173,7 +173,7 @@ On Windows and macOS, Brave Origin is a paid stripped-down build. This tool keep
 | Platform | Where the policies go |
 | --- | --- |
 | Windows | Brave policy keys in the registry |
-| macOS | `defaults` for the current user, or a managed plist for the whole machine |
+| macOS | `defaults` for the current user (Recommended level), or a configuration profile you export and install for the whole machine |
 | Linux | A JSON policy file in `/etc/brave/policies/managed/` |
 | Android, iOS/iPadOS | No local writes. `-ExportPolicyPath` creates a file for your MDM. |
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "policyTemplateVersion": "159.1.102.30",
+  "policyTemplateVersion": "159.1.102.46",
   "sources": [
     "https://support.brave.app/hc/en-us/articles/360039248271-Group-Policy",
     "https://brave-browser-downloads.s3.brave.com/latest/policy_templates.zip"
@@ -567,7 +567,8 @@
         }
       ],
       "category": "Privacy",
-      "reason": "Disable filling and saving contact information and payment methods on all sites."
+      "reason": "Disable filling and saving contact information and payment methods on all sites.",
+      "mandatoryOnly": true
     },
     "TranslateEnabled": {
       "type": "DWord",

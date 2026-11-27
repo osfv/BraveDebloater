@@ -231,8 +231,11 @@ function Show-DoctorReport {
     }
 
     $braveProcesses = @(Get-BraveProcess)
-    if ($braveProcesses.Count -gt 0) {
+    if ($braveProcesses.Count -gt 0 -and (Test-BraveUsingProfileRoot -Root $ProfileRoot)) {
         Write-Step "Brave process: running ($($braveProcesses.Count) process(es)). Profile preference cleanup would be skipped until Brave is closed."
+    }
+    elseif ($braveProcesses.Count -gt 0) {
+        Write-Step "Brave process: running ($($braveProcesses.Count) process(es)), but not with $ProfileRoot. Profile preference cleanup can run there."
     }
     else {
         Write-Step 'Brave process: not running.'

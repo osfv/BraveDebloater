@@ -160,8 +160,8 @@ function Get-PolicyTarget {
         'macOS' {
             if ($ScopeName -eq 'LocalMachine') {
                 $path = if ([string]::IsNullOrWhiteSpace($OverridePath)) { '/Library/Managed Preferences/com.brave.Browser.plist' } else { Get-FullFileSystemPath -Path $OverridePath }
-                if (-not $ReadOnly -and [string]::IsNullOrWhiteSpace($OverridePath) -and -not (Test-IsAdministrator)) {
-                    throw "macOS LocalMachine scope writes to '$path' and needs root. Use -Scope CurrentUser, or rerun the command with sudo."
+                if ($Apply -and -not $ReadOnly -and (Test-MacOSManagedPreferencesPath -Path $path)) {
+                    throw (Get-MacOSManagedPolicyMessage -Path $path)
                 }
                 return [pscustomobject]@{ Platform = $PlatformName; Kind = 'MacOSPlist'; Path = $path }
             }
@@ -171,6 +171,24 @@ function Get-PolicyTarget {
             return [pscustomobject]@{ Platform = $PlatformName; Kind = 'MobileMDM'; Path = 'MDM profile' }
         }
     }
+}
+
+function Test-MacOSManagedPreferencesPath {
+    param([string]$Path)
+
+    return ([string]$Path).StartsWith('/Library/Managed Preferences/', [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-MacOSManagedPolicyMessage {
+    param(
+        [string]$Path,
+        [switch]$Restore
+    )
+
+    if ($Restore) {
+        return "This backup targets $Path, which macOS only fills from a configuration profile, so it was not restored and nothing was changed. To undo machine-wide policies, remove the BraveDebloater Brave policies profile in System Settings > General > Device Management."
+    }
+    return "macOS only keeps machine-wide Brave policies from a configuration profile, so nothing was written to $Path. Rerun the same command without -Apply and add -ExportPolicyPath ./brave.mobileconfig, then open that file and install it in System Settings > General > Device Management."
 }
 
 function Get-BravePolicyFileLocation {
@@ -373,6 +391,9 @@ function Get-PolicyTargetElevationHint {
 
     # Called for previews only. Says up front whether the matching -Apply run will need elevation,
     # so users are not surprised after reviewing a dry-run in an unelevated session.
+    if ($Target.Kind -eq 'MacOSPlist' -and (Test-MacOSManagedPreferencesPath -Path $Target.Path)) {
+        return "-Apply cannot write $($Target.Path). macOS only keeps machine-wide policies from a configuration profile. Add -ExportPolicyPath ./brave.mobileconfig to this preview, then open that file and install it in System Settings > General > Device Management."
+    }
     if (Test-IsAdministrator) {
         return ''
     }
@@ -387,11 +408,6 @@ function Get-PolicyTargetElevationHint {
             }
         }
         'JsonFile' {
-            if ([string]::IsNullOrWhiteSpace($OverridePath)) {
-                return "Applying to $($Target.Path) needs root. Rerun with sudo before adding -Apply."
-            }
-        }
-        'MacOSPlist' {
             if ([string]::IsNullOrWhiteSpace($OverridePath)) {
                 return "Applying to $($Target.Path) needs root. Rerun with sudo before adding -Apply."
             }
@@ -445,12 +461,49 @@ function Get-PolicyValue {
         return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
     }
 
-    if ($Target.Kind -eq 'MacOSDefaults' -or $Target.Kind -eq 'MacOSPlist') {
+    if ($Target.Kind -eq 'MacOSPlist') {
+        if (-not (Test-Path -LiteralPath '/usr/bin/plutil')) {
+            return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true; ErrorMessage = 'The macOS plist reader /usr/bin/plutil is unavailable on this host.' }
+        }
+        if (-not (Test-Path -LiteralPath $Target.Path)) {
+            return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
+        }
+
+        try {
+            $lintOutput = @(& /usr/bin/plutil -lint -s -- $Target.Path 2>&1)
+            if ($LASTEXITCODE -ne 0) {
+                throw "Could not read $($Target.Path): $(($lintOutput -join ' ').Trim())"
+            }
+            $jsonText = @(& /usr/bin/plutil -extract $Name json -o - -- $Target.Path 2>$null)
+            $found = $LASTEXITCODE -eq 0
+            $global:LASTEXITCODE = 0
+            if (-not $found) {
+                return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false }
+            }
+            $value = (ConvertFrom-JsonText -Json ('{"value":' + ($jsonText -join "`n") + '}')).value
+        }
+        catch {
+            $global:LASTEXITCODE = 0
+            return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true; ErrorMessage = $_.Exception.Message }
+        }
+        if ($value -is [bool]) {
+            return [pscustomobject]@{ Exists = $true; Value = $value; Kind = 'DWord'; ReadError = $false }
+        }
+        if ($value -is [int] -or $value -is [long]) {
+            return [pscustomobject]@{ Exists = $true; Value = [int]$value; Kind = 'DWord'; ReadError = $false }
+        }
+        if ($value -is [string]) {
+            return [pscustomobject]@{ Exists = $true; Value = $value; Kind = 'String'; ReadError = $false }
+        }
+        return [pscustomobject]@{ Exists = $true; Value = $value; Kind = 'Json'; ReadError = $false }
+    }
+
+    if ($Target.Kind -eq 'MacOSDefaults') {
         if (-not (Test-Path -LiteralPath '/usr/bin/defaults')) {
             return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $true; ErrorMessage = 'The macOS policy reader /usr/bin/defaults is unavailable on this host.' }
         }
 
-        $domain = if ($Target.Kind -eq 'MacOSDefaults') { $Target.Path } else { $Target.Path -replace '\.plist$', '' }
+        $domain = $Target.Path
         try {
             $output = & /usr/bin/defaults read $domain $Name 2>$null
             $readSucceeded = $LASTEXITCODE -eq 0
@@ -640,21 +693,34 @@ function Set-PolicyValue {
         return
     }
 
-    if ($Target.Kind -eq 'MacOSDefaults' -or $Target.Kind -eq 'MacOSPlist') {
-        $domain = if ($Target.Kind -eq 'MacOSDefaults') { $Target.Path } else { $Target.Path -replace '\.plist$', '' }
-        $typeFlag = if ($value -is [bool]) { '-bool' } elseif ($value -is [int]) { '-int' } else { '-string' }
-        if ($Target.Kind -eq 'MacOSPlist') {
-            New-DirectoryLiteral -Path (Split-Path -Parent $Target.Path)
+    if ($Target.Kind -eq 'MacOSPlist') {
+        if (Test-MacOSManagedPreferencesPath -Path $Target.Path) {
+            throw (Get-MacOSManagedPolicyMessage -Path $Target.Path)
         }
+        if (-not (Test-Path -LiteralPath $Target.Path)) {
+            New-DirectoryLiteral -Path (Split-Path -Parent $Target.Path)
+            Set-TextFileContent -Path $Target.Path -Content (ConvertTo-PlistDocument -Payload ([ordered]@{}))
+        }
+        & /usr/bin/plutil -replace $Name -xml (ConvertTo-PlistScalar -Value $value) -- $Target.Path
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not write macOS policy '$Name' to $($Target.Path). Check file permissions, then rerun with -Apply."
+        }
+        Assert-MacOSPolicyWritten -Target $Target -Name $Name -Value $value -Type ([string]$Definition.type)
+        return
+    }
+
+    if ($Target.Kind -eq 'MacOSDefaults') {
+        $typeFlag = if ($value -is [bool]) { '-bool' } elseif ($value -is [int]) { '-int' } else { '-string' }
         if ($Definition.type -eq 'Json') {
-            & /usr/bin/defaults write $domain $Name (ConvertTo-PlistScalar -Value $value)
+            & /usr/bin/defaults write $Target.Path $Name (ConvertTo-PlistScalar -Value $value)
         }
         else {
-            & /usr/bin/defaults write $domain $Name $typeFlag $value
+            & /usr/bin/defaults write $Target.Path $Name $typeFlag $value
         }
         if ($LASTEXITCODE -ne 0) {
             throw "Could not write macOS policy '$Name' to $($Target.Path). Check file permissions, then rerun with -Apply."
         }
+        Assert-MacOSPolicyWritten -Target $Target -Name $Name -Value $value -Type ([string]$Definition.type)
         return
     }
 
@@ -686,11 +752,43 @@ function Remove-PolicyValue {
         }
         return
     }
-    if ($Target.Kind -eq 'MacOSDefaults' -or $Target.Kind -eq 'MacOSPlist') {
-        $domain = if ($Target.Kind -eq 'MacOSDefaults') { $Target.Path } else { $Target.Path -replace '\.plist$', '' }
-        & /usr/bin/defaults delete $domain $Name 2>$null
+    if ($Target.Kind -eq 'MacOSPlist' -or $Target.Kind -eq 'MacOSDefaults') {
+        if ($Target.Kind -eq 'MacOSPlist' -and (Test-MacOSManagedPreferencesPath -Path $Target.Path)) {
+            throw (Get-MacOSManagedPolicyMessage -Path $Target.Path)
+        }
+        $current = Get-PolicyValue -Target $Target -Name $Name
+        if ($current.ReadError) {
+            throw "Could not read macOS policy '$Name' at $($Target.Path) before removing it: $(Get-PolicyValueErrorMessage -Value $current)"
+        }
+        if (-not $current.Exists) {
+            return
+        }
+        if ($Target.Kind -eq 'MacOSPlist') {
+            & /usr/bin/plutil -remove $Name -- $Target.Path 2>$null
+        }
+        else {
+            & /usr/bin/defaults delete $Target.Path $Name 2>$null
+        }
         # Deleting an absent key exits non-zero; clear it so the exit code is not leaked.
         $global:LASTEXITCODE = 0
+        $after = Get-PolicyValue -Target $Target -Name $Name
+        if ($after.ReadError -or $after.Exists) {
+            throw "macOS did not remove policy '$Name' from $($Target.Path). Check file permissions, then rerun the command."
+        }
+    }
+}
+
+function Assert-MacOSPolicyWritten {
+    param(
+        [Parameter(Mandatory = $true)]$Target,
+        [Parameter(Mandatory = $true)][string]$Name,
+        $Value,
+        [string]$Type
+    )
+
+    $written = Get-PolicyValue -Target $Target -Name $Name
+    if ($written.ReadError -or -not $written.Exists -or -not (Test-PolicyValueMatches -ActualValue $written.Value -ExpectedValue $Value -Type $Type)) {
+        throw "macOS reported success for '$Name', but reading $($Target.Path) back did not return the new value. Policies set before it in this run stay set; undo them with the backup listed above."
     }
 }
 

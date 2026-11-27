@@ -153,7 +153,7 @@ Some cosmetic cleanup lives in each Brave profile instead. Close Brave first, th
 .\Invoke-BraveDebloat.ps1 -Preset Extreme -IncludeProfilePreferences -Apply
 ```
 
-If Brave is running, profile preference cleanup is skipped. This avoids writing files that Brave may overwrite. Restores that include profile files stop for the same reason until Brave is closed. A preview tells you up front when Brave is running, and when a selected feature has profile patches that `-IncludeProfilePreferences` would add.
+If Brave is running with the selected profile folder, profile preference cleanup is skipped. This avoids writing files that Brave may overwrite. A folder counts as in use when it is a default Brave profile folder for any channel, or when it holds Brave's lock file (`SingletonLock` on macOS and Linux, `lockfile` on Windows). Restores that include profile files stop for the same reason until Brave is closed. A preview tells you up front when Brave is running, and when a selected feature has profile patches that `-IncludeProfilePreferences` would add.
 
 Preferences files are read and written as UTF-8 without a byte order mark on every PowerShell version, so profile names and site entries with non-ASCII characters are preserved. Date strings elsewhere in the file are kept exactly as written. PowerShell 7.0 to 7.4 cannot read them without converting them, so those versions skip a Preferences file that contains dates and say so; use PowerShell 7.5 or newer, or Windows PowerShell 5.1, to clean it.
 
@@ -216,7 +216,15 @@ To target another loaded Windows user's policy hive from an elevated PowerShell 
 
 The target is exactly `HKEY_USERS\<SID>\Software\Policies\BraveSoftware\Brave`. The hive must already be loaded, and restores require the same explicit `-UserSid`; `-PolicyPath` cannot authorize an `HKEY_USERS` restore. Pass that user's `-ProfileRoot` explicitly when also using `-IncludeProfilePreferences`.
 
-macOS current-user mode uses `defaults write com.brave.Browser`. macOS machine-wide mode writes `/Library/Managed Preferences/com.brave.Browser.plist`.
+macOS current-user mode uses `defaults write com.brave.Browser`. Brave shows these policies as Recommended in `brave://policy`, so they set the default and you can still change the setting in Brave. Brave accepts `AutofillSettings` only as a mandatory policy, so current-user runs skip it and say so. Each write is read back, and the run stops if macOS reported success without storing the value.
+
+macOS keeps machine-wide (mandatory) policies only from a configuration profile. It ignores `defaults write` to `/Library/Managed Preferences/com.brave.Browser.plist` and clears hand-written files there at the next reboot. So `-Scope LocalMachine -Apply` on macOS writes nothing and points you to a profile instead:
+
+```powershell
+./Invoke-BraveDebloat.ps1 -Platform macOS -Scope LocalMachine -Preset Extreme -ExportPolicyPath ./brave.mobileconfig
+```
+
+Open `brave.mobileconfig`, then install it in System Settings > General > Device Management. Brave then shows the policies as Mandatory, including `AutofillSettings`. To undo, remove the BraveDebloater Brave policies profile there. `-Doctor -Scope LocalMachine` reads the managed plist that the profile creates, and a restore refuses backups that target it. With `-PolicyPath`, machine-wide runs write that plist file instead, for testing or for your own deployment tool.
 
 Linux writes JSON policy values to `/etc/brave/policies/managed/BraveDebloater.json`. Other values in that file, including date strings, are kept as written. On PowerShell 7.0 to 7.4, which cannot keep date strings as text, apply and restore stop before changing a policy file that contains them.
 
@@ -233,7 +241,7 @@ Examples:
 .\Invoke-BraveDebloat.ps1 -Platform Android -OnlyFeature Rewards -ExportPolicyPath .\brave-android-mdm.json
 ```
 
-`-ExportPolicyPath` picks the format from the platform and file extension: `.reg` for Windows registry policies, `.json` for Linux and Android, `.plist` for macOS, and `.mobileconfig` for iOS/iPadOS. Exports and previews never write to the policy target, so they do not need an elevated session. If `-Apply` is present together with `-ExportPolicyPath`, only the export file is written and `-Apply` is ignored with a warning.
+`-ExportPolicyPath` picks the format from the platform and file extension: `.reg` for Windows registry policies, `.json` for Linux and Android, `.plist` for macOS, and `.mobileconfig` for iOS/iPadOS or for a macOS configuration profile. Exports and previews never write to the policy target, so they do not need an elevated session. If `-Apply` is present together with `-ExportPolicyPath`, only the export file is written and `-Apply` is ignored with a warning.
 
 Use `-PolicyPath` when testing, or when your managed Linux or macOS machine-wide policy file lives somewhere custom. It has no effect on Windows registry or macOS `defaults` targets, and the script says so. The path is recorded in full in backups, so a later restore matches even when you pass it as a relative path from another folder.
 

@@ -275,6 +275,12 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($PolicyPath) -and $policyTarget.Kind -notin @('JsonFile', 'MacOSPlist')) {
         Write-Warning "-PolicyPath is ignored for $platformName $Scope policies, which are written to $($policyTarget.Path). It only selects a file for Linux or macOS LocalMachine targets."
     }
+    if ($policyTarget.Kind -eq 'MacOSDefaults' -and -not $exportRequested) {
+        foreach ($name in @($policyNames | Where-Object { Test-PolicyMandatoryOnly -Definition $policyDefinitions[$_] })) {
+            [void]$policyNames.Remove($name)
+            Write-Step "Skipped $($name): Brave accepts it only as a mandatory policy, and macOS applies current-user policies as recommended. To include it, add -ExportPolicyPath ./brave.mobileconfig to this command without -Apply, then open that file and install it in System Settings > General > Device Management."
+        }
+    }
 
     # An export is written without -Apply or a backup, and a report is written in a preview as well as
     # after -Apply, never through the policy backup. Neither may be a file Brave reads its policies from.

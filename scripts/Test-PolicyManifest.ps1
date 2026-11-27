@@ -269,6 +269,9 @@ foreach ($policyName in $policies.Keys) {
     if ($policy.type -eq 'Json' -and $policy.value -isnot [System.Collections.IList] -and $policy.value -isnot [System.Management.Automation.PSCustomObject]) {
         throw "Policy '$policyName' is Json but does not contain an array or object."
     }
+    if ($null -ne $policy.PSObject.Properties['mandatoryOnly'] -and $policy.mandatoryOnly -isnot [bool]) {
+        throw "Policy '$policyName' has a non-boolean mandatoryOnly value."
+    }
 }
 
 $autofill = $policies['AutofillSettings']

@@ -9,6 +9,13 @@ function Get-Manifest {
     return (Get-JsonFileContent -Path $manifestPath)
 }
 
+function Test-PolicyMandatoryOnly {
+    param($Definition)
+
+    $property = if ($null -ne $Definition) { $Definition.PSObject.Properties['mandatoryOnly'] } else { $null }
+    return ($null -ne $property -and $property.Value -eq $true)
+}
+
 function Get-DeprecatedPolicyNames {
     param([Parameter(Mandatory = $true)]$Manifest)
 

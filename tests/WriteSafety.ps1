@@ -194,7 +194,7 @@ if ((Get-Utf8FileContent -Path $firstProfile) -cne $original) { throw 'Interrupt
 
 # Restore passes the validated absolute file path to both policy writers, but leaves defaults domains unchanged.
 function Test-RestorePolicyTarget {
-    param([string]$Kind, [string]$RecordedPath, [string]$AllowedPath, [string]$ExpectedPath, [switch]$SimulateManagedPlist)
+    param([string]$Kind, [string]$RecordedPath, [string]$AllowedPath, [string]$ExpectedPath, [switch]$SimulateManagedPlist, [switch]$ExpectRefusal)
 
     $resolver = (Get-Command Get-FullFileSystemPath).ScriptBlock
     function Get-FullFileSystemPath {
@@ -225,6 +225,14 @@ function Test-RestorePolicyTarget {
     Set-JsonFileContent -Path $restorePath -Object $restoreBackup
     Restore-RegistryBackup -BackupPath $restorePath -Manifest $manifest -AllowedPolicyPath $AllowedPath *> $null
     if ($writes.Count -ne 0) { throw 'Restore preview called a policy writer.' }
+    if ($ExpectRefusal) {
+        $refusal = ''
+        try { Restore-RegistryBackup -BackupPath $restorePath -Manifest $manifest -AllowedPolicyPath $AllowedPath -DoApply *> $null }
+        catch { $refusal = $_.Exception.Message }
+        if ($refusal -notlike "This backup targets $ExpectedPath, which macOS only fills from a configuration profile*") { throw "Restore to $ExpectedPath was not refused: $refusal" }
+        if ($writes.Count -ne 0) { throw 'A refused restore called a policy writer.' }
+        return
+    }
     Restore-RegistryBackup -BackupPath $restorePath -Manifest $manifest -AllowedPolicyPath $AllowedPath -DoApply *> $null
     if ($writes.Count -ne 2 -or $writes[0].Operation -ne 'set' -or $writes[1].Operation -ne 'remove') {
         throw 'Restore did not call both policy writers.'
@@ -240,7 +248,7 @@ Push-Location -LiteralPath $relativeTargetDirectory
 try {
     $plistPath = Join-Path $relativeTargetDirectory 'custom.plist'
     Test-RestorePolicyTarget -Kind MacOSPlist -RecordedPath 'custom.plist' -AllowedPath $plistPath -ExpectedPath $plistPath
-    Test-RestorePolicyTarget -Kind MacOSPlist -RecordedPath 'com.brave.Browser.plist' -ExpectedPath '/Library/Managed Preferences/com.brave.Browser.plist' -SimulateManagedPlist
+    Test-RestorePolicyTarget -Kind MacOSPlist -RecordedPath 'com.brave.Browser.plist' -ExpectedPath '/Library/Managed Preferences/com.brave.Browser.plist' -SimulateManagedPlist -ExpectRefusal
     $jsonPath = Join-Path $relativeTargetDirectory 'custom.json'
     Test-RestorePolicyTarget -Kind JsonFile -RecordedPath 'custom.json' -AllowedPath $jsonPath -ExpectedPath $jsonPath
     Test-RestorePolicyTarget -Kind MacOSDefaults -RecordedPath 'com.brave.Browser' -ExpectedPath 'com.brave.Browser'
@@ -504,6 +512,28 @@ if ((Resolve-PlatformName -Name Auto) -eq 'macOS') {
         if ($restored.Value.Count -gt 0 -and ($restored.Value[0].url_pattern -cne 'https://example.com' -or ($restored.Value[0].blocked_types -join ',') -cne 'payments')) { throw 'Native macOS Autofill restore changed the saved rule.' }
         if ((Get-PolicyValue -Target $macTarget -Name DnsOverHttpsMode).Value -cne 'automatic') { throw 'Native macOS Autofill write changed an unrelated policy.' }
     }
+
+    function Get-UnstoredMacOSWriteMessage {
+        function Get-PolicyValue { param($Target, [string]$Name) return [pscustomobject]@{ Exists = $false; Value = $null; Kind = $null; ReadError = $false } }
+        try { Set-PolicyValue -Target $macTarget -Name BraveRewardsDisabled -Definition ([pscustomobject]@{ type = 'DWord'; value = 1 }) }
+        catch { return $_.Exception.Message }
+        return ''
+    }
+    if ((Get-UnstoredMacOSWriteMessage) -notlike "macOS reported success for 'BraveRewardsDisabled', but reading*") { throw 'A macOS write that was not stored was reported as set.' }
+    Remove-PolicyValue -Target $macTarget -Name DnsOverHttpsMode
+    if ((Get-PolicyValue -Target $macTarget -Name DnsOverHttpsMode).Exists) { throw 'Removing a macOS plist policy left it in place.' }
+    Remove-PolicyValue -Target $macTarget -Name DnsOverHttpsMode
+}
+
+$managedPlistTarget = [pscustomobject]@{ Platform = 'macOS'; Kind = 'MacOSPlist'; Path = '/Library/Managed Preferences/com.brave.Browser.plist' }
+foreach ($managedWrite in @(
+        { Set-PolicyValue -Target $managedPlistTarget -Name BraveRewardsDisabled -Definition ([pscustomobject]@{ type = 'DWord'; value = 1 }) },
+        { Remove-PolicyValue -Target $managedPlistTarget -Name BraveRewardsDisabled }
+    )) {
+    $managedMessage = ''
+    try { & $managedWrite }
+    catch { $managedMessage = $_.Exception.Message }
+    if ($managedMessage -notlike 'macOS only keeps machine-wide Brave policies from a configuration profile*') { throw "A write to the macOS managed plist was not refused: $managedMessage" }
 }
 
 # Brave reads string policy values case-sensitively, so a differently cased value is not "already set".

@@ -53,6 +53,54 @@ Describe 'Brave process detection' {
     }
 }
 
+Describe 'Brave profile in use' {
+    BeforeAll {
+        $root = Split-Path -Parent $PSScriptRoot
+        . (Join-Path $root 'src/Common.ps1')
+        . (Join-Path $root 'src/PlatformPolicy.ps1')
+        $profileRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('BraveDebloaterProfileInUse-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath $profileRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'allows a folder Brave does not use while Brave runs' {
+        Mock Test-BraveRunning { $true }
+        Mock Get-DefaultProfileRoot { '' }
+
+        Test-BraveUsingProfileRoot -Root $profileRoot | Should -BeFalse
+    }
+
+    It 'blocks a folder that holds the <Lock> lock' -TestCases @(@{ Lock = 'SingletonLock' }, @{ Lock = 'lockfile' }) {
+        Mock Test-BraveRunning { $true }
+        Mock Get-DefaultProfileRoot { '' }
+        $lockPath = Join-Path $profileRoot $Lock
+        New-Item -ItemType File -Path $lockPath -Force | Out-Null
+        try {
+            Test-BraveUsingProfileRoot -Root $profileRoot | Should -BeTrue
+        }
+        finally {
+            Remove-Item -LiteralPath $lockPath -Force
+        }
+    }
+
+    It 'blocks a default Brave profile folder' {
+        Mock Test-BraveRunning { $true }
+        Mock Get-DefaultProfileRoot { $profileRoot }
+
+        Test-BraveUsingProfileRoot -Root $profileRoot | Should -BeTrue
+    }
+
+    It 'allows the default folder when Brave is not running' {
+        Mock Test-BraveRunning { $false }
+        Mock Get-DefaultProfileRoot { $profileRoot }
+
+        Test-BraveUsingProfileRoot -Root $profileRoot | Should -BeFalse
+    }
+}
+
 Describe 'Restore safety' {
     BeforeAll {
         $root = Split-Path -Parent $PSScriptRoot
@@ -63,7 +111,7 @@ Describe 'Restore safety' {
         $manifest = Get-Content -LiteralPath (Join-Path (Join-Path $root 'config') 'policies.json') -Raw | ConvertFrom-Json
     }
 
-    It 'refuses to restore profile files while Brave is running' {
+    It 'refuses to restore profile files while Brave is using the profile' {
         $directory = Join-Path ([System.IO.Path]::GetTempPath()) ('BraveDebloaterPester-{0}' -f [guid]::NewGuid().ToString('N'))
         $profileRoot = Join-Path $directory 'UserData'
         $profileDirectory = Join-Path $profileRoot 'Default'
@@ -88,6 +136,7 @@ Describe 'Restore safety' {
                 profileFiles = @([ordered]@{ originalPath = $preferences; backupPath = $preferencesBackup })
             } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $backupPath -Encoding UTF8
 
+            New-Item -ItemType File -Path (Join-Path $profileRoot 'SingletonLock') -Force | Out-Null
             Mock Get-Process { return [pscustomobject]@{ ProcessName = 'brave' } }
             Mock Resolve-PlatformName { return 'Linux' }
 

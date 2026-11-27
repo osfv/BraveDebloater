@@ -119,7 +119,7 @@ function Invoke-ProfilePreferenceCleanup {
         return
     }
 
-    if (Test-BraveRunning) {
+    if (Test-BraveUsingProfileRoot -Root $Root) {
         if ($DoApply) {
             Write-Warning 'Brave is running, so profile preference cleanup was skipped. Close Brave, then rerun with -IncludeProfilePreferences -Apply.'
             & $addSkippedRow 'Profile preferences' $Root 'Brave was running; close it and rerun.'
