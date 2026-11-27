@@ -84,13 +84,13 @@ if ([string]::IsNullOrWhiteSpace($BackupDirectory)) {
     $BackupDirectory = Join-Path $ProjectRoot 'backups'
 }
 
-$moduleDir = Join-Path $ProjectRoot 'src'
-foreach ($moduleName in @('Common.ps1', 'Manifest.ps1', 'PlatformPolicy.ps1', 'Backup.ps1', 'ProfilePreferences.ps1', 'Reports.ps1')) {
-    . (Join-Path $moduleDir $moduleName)
-}
-
 $runFailed = $false
 try {
+    $moduleDir = Join-Path $ProjectRoot 'src'
+    foreach ($moduleName in @('Common.ps1', 'Manifest.ps1', 'PlatformPolicy.ps1', 'Backup.ps1', 'ProfilePreferences.ps1', 'Reports.ps1')) {
+        . (Join-Path $moduleDir $moduleName)
+    }
+
     $manifest = Get-Manifest
     $platformName = Resolve-PlatformName -Name $Platform
 
@@ -602,5 +602,7 @@ catch {
     throw
 }
 finally {
-    Write-IssueHint -Failed:$runFailed
+    if (Get-Command -Name Write-IssueHint -ErrorAction Ignore) {
+        Write-IssueHint -Failed:$runFailed
+    }
 }

@@ -296,6 +296,38 @@ try {
         throw '-OnlyFeature did not reject blank-only input.'
     }
 
+    $issueHint = 'Found a bug, or a Brave feature this misses? Report it at https://github.com/osfv/BraveDebloater/issues/new/choose'
+    $issueErrorHint = 'This run stopped with an error. If the error message does not say how to fix it, report it at https://github.com/osfv/BraveDebloater/issues/new/choose'
+    Assert-TextContains -Text $onlyDryRunOutput -Expected $issueHint -Context 'dry-run issue hint'
+    $versionHintOutput = (& $scriptPath -Version *>&1 | Out-String -Width 4096)
+    Assert-TextContains -Text $versionHintOutput -Expected $issueHint -Context '-Version issue hint'
+
+    $brokenInstallRoot = Join-Path $tempRoot 'BrokenInstall'
+    New-Item -ItemType Directory -Path (Join-Path $brokenInstallRoot 'src') -Force | Out-Null
+    Copy-Item -LiteralPath $scriptPath -Destination $brokenInstallRoot
+    Copy-Item -LiteralPath (Join-Path $root 'src/Common.ps1') -Destination (Join-Path $brokenInstallRoot 'src')
+    $hostPath = (Get-Process -Id $PID).Path
+    $issueHintErrorCases = @(
+        @{ Context = 'run-body error'; Script = $scriptPath; Arguments = @('-Platform', 'Linux', '-UserSid', $targetUserSid, '-OnlyFeature', 'Rewards'); Message = 'supported only for Windows registry policies' }
+        @{ Context = 'missing src file'; Script = (Join-Path $brokenInstallRoot 'Invoke-BraveDebloat.ps1'); Arguments = @('-Version'); Message = 'Manifest.ps1' }
+    )
+    foreach ($case in $issueHintErrorCases) {
+        $ErrorActionPreference = 'Continue'
+        try {
+            $caseOutput = (& $hostPath -NoProfile -ExecutionPolicy Bypass -File $case.Script @($case.Arguments) 2>&1 | Out-String -Width 4096)
+            $caseExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = 'Stop'
+        }
+        if ($caseExitCode -ne 1) {
+            throw "$($case.Context) exited with $caseExitCode instead of 1. Output: $caseOutput"
+        }
+        Assert-TextContains -Text $caseOutput -Expected $issueErrorHint -Context "$($case.Context) output"
+        Assert-TextContains -Text $caseOutput -Expected $case.Message -Context "$($case.Context) output"
+        Assert-TextDoesNotContain -Text $caseOutput -Unexpected $issueHint -Context "$($case.Context) output"
+    }
+
     $onlyConflictCommands = @(
         { & $scriptPath -OnlyFeature Rewards -ExcludeFeature Wallet -List | Out-Null },
         { & $scriptPath -OnlyFeature Rewards -IncludeFeature Wallet -List | Out-Null },
