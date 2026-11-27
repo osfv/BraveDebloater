@@ -75,7 +75,8 @@ Describe 'Brave profile in use' {
 
     It 'blocks a folder that holds the <Lock> lock on <Platform> only' -TestCases @(
         @{ Lock = 'SingletonLock'; Platform = 'Linux'; Blocked = $true }, @{ Lock = 'SingletonLock'; Platform = 'macOS'; Blocked = $true }, @{ Lock = 'SingletonLock'; Platform = 'Windows'; Blocked = $false },
-        @{ Lock = 'lockfile'; Platform = 'Windows'; Blocked = $true }, @{ Lock = 'lockfile'; Platform = 'Linux'; Blocked = $false }
+        @{ Lock = 'lockfile'; Platform = 'Windows'; Blocked = $true }, @{ Lock = 'lockfile'; Platform = 'Linux'; Blocked = $false },
+        @{ Lock = 'singletonlock'; Platform = 'Linux'; Blocked = $false }, @{ Lock = 'LOCKFILE'; Platform = 'Windows'; Blocked = $true }
     ) {
         Mock Test-BraveRunning { $true }
         Mock Get-DefaultProfileRoot { '' }
@@ -103,8 +104,10 @@ Describe 'Brave profile in use' {
         Mock Resolve-PlatformName { 'Linux' }
         $active = Join-Path $profileRoot 'active'
         $offline = Join-Path $profileRoot 'offline'
-        New-Item -ItemType File -Path (Join-Path $active 'UserData/SingletonLock') -Force | Out-Null
-        New-Item -ItemType Directory -Path (Join-Path $offline 'UserData') -Force | Out-Null
+        foreach ($folder in @($active, $offline)) {
+            New-Item -ItemType Directory -Path (Join-Path $folder 'UserData') -Force | Out-Null
+        }
+        New-Item -ItemType File -Path (Join-Path $active 'UserData/SingletonLock') | Out-Null
         $processDirectory = [Environment]::CurrentDirectory
         Push-Location -LiteralPath $active
         try {
